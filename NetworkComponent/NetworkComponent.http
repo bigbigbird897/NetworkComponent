@@ -1,0 +1,6 @@
+@NetworkComponent_HostAddress = http://localhost:5126
+
+GET {{NetworkComponent_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
