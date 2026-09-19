@@ -12,6 +12,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -51,12 +52,16 @@
             <TextBox x:Name="txtDays" Width="100" Text="30" IsEnabled="False" VerticalAlignment="Center"/>
         </StackPanel>
 
+        <!-- 增值授权：允许局域网其他设备调用 -->
+        <CheckBox Grid.Row="6" x:Name="chkLanAccess" Margin="90,0,0,8" VerticalAlignment="Center"
+                  Content="允许局域网内其他设备调用本服务（增值授权，默认仅本机）"/>
+
         <!-- 生成按钮 -->
-        <Button Grid.Row="6" Content="生成 license.lic" Click="OnGenerate"
+        <Button Grid.Row="7" Content="生成 license.lic" Click="OnGenerate"
                 HorizontalAlignment="Left" Padding="16,6" Margin="0,8,0,0"/>
 
         <!-- 状态 -->
-        <TextBlock Grid.Row="7" x:Name="lblStatus" Text="就绪" TextWrapping="Wrap"
+        <TextBlock Grid.Row="8" x:Name="lblStatus" Text="就绪" TextWrapping="Wrap"
                    VerticalAlignment="Top" Margin="0,12,0,0" Foreground="#444"/>
     </Grid>
 </Window>

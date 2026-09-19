@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace ConnectionMqtt.Model
+namespace ConnectionMqtt.LocalEntity
 {
     /// <summary>
     /// 单个MQTT客户端配置

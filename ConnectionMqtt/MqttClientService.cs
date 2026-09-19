@@ -1,4 +1,4 @@
-﻿using ConnectionMqtt.Model;
+﻿using ConnectionMqtt.LocalEntity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MQTTnet;

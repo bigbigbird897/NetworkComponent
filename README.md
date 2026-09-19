@@ -376,7 +376,7 @@ session.Close();
    - 机器码：`System盘卷序列号 + 首张活动网卡MAC` → SHA256 取前 16 位十六进制，同一台机器稳定、换机即变。
    - license 文件：`运行目录/license.lic`，格式 `Base64(载荷JSON).Base64(RSA签名)`，软件商私钥签名、程序内公钥验签，防篡改。
    - 永久授权：载荷 `LicenseType=Permanent`、无到期时间；试用：`ExpireAt=到期时间`。
-   - 无 license 文件时走内置试用：首次运行在 `%ProgramData%/NetworkComponent/.trial` 记开始时间，默认 30 天。
+   - 无 license 文件时走内置宽限试用：首次运行在 `%ProgramData%/NetworkComponent/.trial` 记开始时间，**宽限天数写死在程序内为 10 天**（不在配置中暴露）。
 2. **新增文件（Common/License）**：
    - `LicenseInfo.cs`（载荷）、`LicenseStatus.cs`（状态枚举）、`LicenseSettings.cs`（配置）。
    - `MachineCodeHelper.cs`：机器码生成。
@@ -390,7 +390,7 @@ session.Close();
    - `PublicKey`：RSA 公钥（已填本次生成值）。
    - `ApiKey`：调用业务接口必须带的请求头 `X-Api-Key`（默认 `nc-prod-a8f3k2`，上线请改）。
    - `IpWhitelist`：允许调用的客户端 IP；本机回环(127.0.0.1/::1)自动放行。
-   - `TrialDays`：试用天数。
+   - （已移除 `TrialDays`：宽限天数写死在 DLL 内为 10 天，客户无法改配置延长。）
 6. **密钥保管**：本次 RSA 私钥已存到项目外的 `..\_授权密钥_勿发布\license_private.xml`，**切勿打包进客户部署目录**；公钥在程序里。
 7. **验证**：无 license 时返回“试用中剩余 30 天”；缺/错 ApiKey 返回 40101；用私钥为本机机器码签永久 license 后重启，`GetStatus` 显示“永久授权”，带正确 ApiKey 的业务接口 200 正常返回。
 8. **防“部署到网络被别人直接调用”**：① 默认把服务监听绑在 `127.0.0.1`（按需用 `ASPNETCORE_URLS` 放开到网卡）；② 所有业务接口强制 `X-Api-Key`；③ 配置 `IpWhitelist` 只放行业务机；④ 授权按机器绑定，license 拷到别的机器也无法使用。
@@ -400,4 +400,33 @@ session.Close();
 1. `Tools/LicenseTool` 由控制台改为 WPF（`UseWPF`、`net10.0-windows`、`WinExe`），删除原 `Program.cs`，新增 `App.xaml/.cs`、`MainWindow.xaml/.cs`。
 2. 界面流程：浏览选择私钥 XML → 填客户机器码、客户名 → 单选“永久授权/限时试用”（选试用时启用天数输入）→ 点“生成 license.lic”并另存。
 3. 业务逻辑仍复用 `Common/License/LicenseGenerator.cs`；输出 `Tools/LicenseTool/bin/Debug/net10.0-windows/LicenseTool.exe`，编译 0 警告 0 错误。
+
+### 2026-09-19 收紧试用天数：从可改配置改为写死 10 天宽限
+
+1. **问题**：原 `appsettings.json` 的 `License:TrialDays` 为明文，客户可直接改大或删 `.trial` 文件无限续用。
+2. **改动**：
+   - 删除 `LicenseSettings.TrialDays` 配置项与 appsettings 中对应字段。
+   - `LicenseManager` 内置常量 `GraceDays = 10`，无 license 文件时按首次运行时间起算 10 天宽限；天数写死在 DLL 内，客户改配置无效。
+3. **正式/限时试用**：超过宽限或要给客户更长试用，一律由 `LicenseTool` 签带 `ExpireAt` 的签名 license（客户无法篡改延期）。
+4. **宽限标记防篡改**：首次运行时间以 `时间|HMAC-SHA256` 形式写入两个冗余位置（`%ProgramData%\NetworkComponent\.trial` 与 `%LocalAppData%\NetworkComponent\nc.cache`），校验时取两者中有效的最早时间。单删一个文件不会重置计时；伪造/改早时间因内置密钥 HMAC 校验失败而被忽略。
+
+### 2026-09-19 局域网访问改为签名 license 的增值开关（不再放可改配置）
+
+1. **动机**：原 `IpWhitelist` 放在 appsettings.json 里客户可自行编辑放行任意设备；改为写死在代码中，把“允许局域网其他设备调用”做成可售卖的增值授权。
+2. **授权模型**：
+   - 默认**仅本机回环**（127.0.0.1/::1）可调用 HTTP 业务接口；该规则写死在 `LicenseGuardMiddleware`，配置里已无此项。
+   - license 载荷新增 `AllowLanAccess` 布尔字段（默认 false）。软件商在 LicenseTool 勾选“允许局域网内其他设备调用”后，该开关被 RSA 私钥签名固化进 license，客户无法自行开启。
+   - 非回环来源访问时：`AllowLanAccess=false` 返回 40304“局域网访问未授权”；`true` 才放行。
+3. **改动文件**：
+   - `Common/License/LicenseInfo.cs`：新增 `AllowLanAccess`。
+   - `Common/License/LicenseStatus.cs`：新增同名状态字段。
+   - `Common/License/LicenseManager.cs`：验签后把该字段带入状态。
+   - `Common/License/LicenseGenerator.cs`：`GeneratePermanent / GenerateTrial` 增加 `allowLanAccess` 参数。
+   - `Common/License/LicenseSettings.cs`：删除 `IpWhitelist`。
+   - `NetworkComponent/License/LicenseGuardMiddleware.cs`：IP 白名单逻辑改为“回环恒放行，非回环须 license 开 LAN 开关”。
+   - `appsettings.json`：删除 `License:IpWhitelist`。
+   - `LicenseTool/MainWindow.xaml(.cs)`：新增“允许局域网内其他设备调用”勾选框；顺手修正项目移动后的 `Common` 引用相对路径（`..\..\` → `..\`）。
+4. **边界说明（重要）**：
+   - 此开关只管 **HTTP REST 接口**。`SocketServerService` 的裸 TCP 监听端口（如 9001）不经过 HTTP 管道，仍按 `SocketServerConfigs` 绑定地址对外接受连接，不受此开关影响；如需限制 TCP 来源需另行在 Accept 后加 IP/token 校验。
+   - 软件作为客户端主动连局域网设备（Socket/Modbus/OPC UA 出方向连接）不受任何影响。
 

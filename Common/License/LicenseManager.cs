@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 
 namespace Common.License
@@ -76,7 +77,8 @@ namespace Common.License
                     Message = isPermanent ? $"永久授权（客户：{info.Customer}）" : $"授权有效，到期时间：{info.ExpireAt:yyyy-MM-dd}",
                     MachineCode = _machineCode,
                     ExpireAt = info.ExpireAt,
-                    Customer = info.Customer
+                    Customer = info.Customer,
+                    AllowLanAccess = info.AllowLanAccess
                 };
             }
             catch (Exception ex)
@@ -85,28 +87,38 @@ namespace Common.License
             }
         }
 
-        /// <summary>试用判定：首次运行写标记文件，按 TrialDays 判断。</summary>
+        /// <summary>无 license 文件时的宽限（试用）天数，写死在程序内，客户无法通过配置修改。</summary>
+        private const int GraceDays = 10;
+
+        /// <summary>宽限标记文件的 HMAC 签名密钥（内置在程序内，用于防止客户伪造/篡改首次运行时间）。</summary>
+        private static readonly byte[] GraceSecret = Encoding.UTF8.GetBytes(
+            "nc-grace-v1::7f3a9c2e5b1d4e8a::" + "29F4138F079F4514");
+
+        /// <summary>
+        /// 宽限（试用）判定：
+        /// 在两个不同位置各存一份带 HMAC 签名的“首次运行时间”，取最早的一份作为起点。
+        /// 单删其中一个文件无法重置计时；伪造更早时间也无法通过 HMAC 校验。
+        /// </summary>
         private LicenseStatus EvaluateTrial()
         {
-            string markerDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "NetworkComponent");
-            Directory.CreateDirectory(markerDir);
-            string marker = Path.Combine(markerDir, ".trial");
+            // 两个冗余位置：ProgramData（隐藏目录）与 LocalAppData（文件名伪装成缓存）
+            string[] paths =
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetworkComponent", ".trial"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkComponent", "nc.cache")
+            };
 
-            DateTime start;
-            if (File.Exists(marker))
+            DateTime start = ReadEarliestGraceStart(paths);
+
+            if (start == DateTime.MinValue)
             {
-                if (!DateTime.TryParse(File.ReadAllText(marker), out start))
-                    start = DateTime.Now;
-            }
-            else
-            {
+                // 全新机器：写入两个位置
                 start = DateTime.Now;
-                File.WriteAllText(marker, start.ToString("yyyy-MM-dd HH:mm:ss"));
+                WriteGraceMarker(paths[0], start);
+                WriteGraceMarker(paths[1], start);
             }
 
-            var remaining = (_settings.TrialDays - (DateTime.Now - start).TotalDays);
+            var remaining = (GraceDays - (DateTime.Now - start).TotalDays);
             if (remaining > 0)
             {
                 return new LicenseStatus
@@ -120,9 +132,64 @@ namespace Common.License
             return new LicenseStatus
             {
                 State = LicenseState.TrialExpired,
-                Message = $"试用期 {_settings.TrialDays} 天已结束，请联系软件商获取正式授权",
+                Message = $"试用期 {GraceDays} 天已结束，请联系软件商获取正式授权",
                 MachineCode = _machineCode
             };
+        }
+
+        /// <summary>读取所有位置里有效的最早首次运行时间；都没有或都无效返回 DateTime.MinValue。</summary>
+        private DateTime ReadEarliestGraceStart(string[] paths)
+        {
+            DateTime earliest = DateTime.MaxValue;
+            bool any = false;
+            foreach (var p in paths)
+            {
+                try
+                {
+                    if (!File.Exists(p)) continue;
+                    var parts = File.ReadAllText(p).Split('|');
+                    if (parts.Length != 2) continue;
+                    if (!DateTime.TryParseExact(parts[0], "yyyy-MM-dd HH:mm:ss",
+                        null, System.Globalization.DateTimeStyles.None, out var t)) continue;
+                    // 校验 HMAC：时间被改动过则校验失败，视为无效
+                    if (!FixedTimeEquals(ComputeMac(parts[0]), parts[1])) continue;
+                    any = true;
+                    if (t < earliest) earliest = t;
+                }
+                catch { /* 单个位置读失败忽略 */ }
+            }
+            return any ? earliest : DateTime.MinValue;
+        }
+
+        /// <summary>写入一份带 HMAC 签名的标记文件。</summary>
+        private void WriteGraceMarker(string path, DateTime start)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var s = start.ToString("yyyy-MM-dd HH:mm:ss");
+                File.WriteAllText(path, s + "|" + ComputeMac(s));
+            }
+            catch { /* 写失败不阻断主流程 */ }
+        }
+
+        /// <summary>对首次运行时间做 HMAC-SHA256 签名（Base64）。</summary>
+        private string ComputeMac(string s)
+        {
+            using var hmac = new HMACSHA256(GraceSecret);
+            return Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(s)));
+        }
+
+        /// <summary>恒定时间比较两个 Base64 签名串，避免时序侧信道。</summary>
+        private static bool FixedTimeEquals(string a, string b)
+        {
+            byte[] ba, bb;
+            try { ba = Convert.FromBase64String(a); bb = Convert.FromBase64String(b); }
+            catch { return false; }
+            if (ba.Length != bb.Length) return false;
+            int diff = 0;
+            for (int i = 0; i < ba.Length; i++) diff |= ba[i] ^ bb[i];
+            return diff == 0;
         }
 
         private LicenseStatus Invalid(string msg) => new()

@@ -1,5 +1,5 @@
-﻿using ConnectionModbusRtuWithTcp.LocalHelper;
-using ConnectionModbusRtuWithTcp.Model;
+﻿using ConnectionModbusRtuWithTcp.LocalEntity;
+using ConnectionModbusRtuWithTcp.LocalHelper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Buffers;

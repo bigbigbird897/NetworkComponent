@@ -33,6 +33,9 @@ namespace Common.License
         /// <summary>客户名称（如有）</summary>
         public string Customer { get; set; } = string.Empty;
 
+        /// <summary>是否授权允许局域网内其他设备调用（仅正式 license 且软件商开启时为 true）</summary>
+        public bool AllowLanAccess { get; set; }
+
         /// <summary>是否允许调用业务接口</summary>
         public bool IsAllowed => State is LicenseState.Active or LicenseState.TrialActive;
     }

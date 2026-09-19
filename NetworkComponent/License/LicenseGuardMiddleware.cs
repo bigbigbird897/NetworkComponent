@@ -48,28 +48,29 @@ namespace NetworkComponent.License
                 }
 
                 // 2. API Key 校验（配置了才校验）
-                if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
-                {
-                    if (!context.Request.Headers.TryGetValue("X-Api-Key", out var key)
-                        || !string.Equals(key.ToString(), _settings.ApiKey, StringComparison.Ordinal))
-                    {
-                        await WriteForbidden(context, 40101, "缺少或错误的 X-Api-Key 请求头");
-                        return;
-                    }
-                }
+                //"ApiKey": "nc-prod-a8f3k2",
+                //if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
+                //{
+                //    if (!context.Request.Headers.TryGetValue("X-Api-Key", out var key)
+                //        || !string.Equals(key.ToString(), _settings.ApiKey, StringComparison.Ordinal))
+                //    {
+                //        await WriteForbidden(context, 40101, "缺少或错误的 X-Api-Key 请求头");
+                //        return;
+                //    }
+                //}
 
-                // 3. 客户端 IP 白名单（配置了才校验）；回环地址(本机)一律放行
-                if (_settings.IpWhitelist != null && _settings.IpWhitelist.Count > 0)
+                // 3. 来源访问范围控制（写死在代码中，客户无法通过配置放开）：
+                //    - 本机回环(127.0.0.1/::1) 一律放行；
+                //    - 局域网非回环地址，必须由签名 license 开启 AllowLanAccess 才放行（增值授权）。
+                var ipAddr = context.Connection.RemoteIpAddress;
+                bool isLoopback = ipAddr != null && IPAddress.IsLoopback(ipAddr);
+                if (!isLoopback && !status.AllowLanAccess)
                 {
-                    var ipAddr = context.Connection.RemoteIpAddress;
                     var ip = ipAddr?.MapToIPv4().ToString();
-                    if (ipAddr != null && !IPAddress.IsLoopback(ipAddr)
-                        && !_settings.IpWhitelist.Contains(ip))
-                    {
-                        _logger.LogWarning("来自未授权 IP {Ip} 的访问被拒绝", ip);
-                        await WriteForbidden(context, 40303, $"客户端 IP {ip} 不在白名单内");
-                        return;
-                    }
+                    _logger.LogWarning("来自局域网 IP {Ip} 的访问被拒绝（未授权 LAN 访问）", ip);
+                    await WriteForbidden(context, 40304,
+                        $"局域网访问未授权（来源 IP {ip}）。本机调用请使用 localhost；如需局域网其他设备调用，请联系软件商开通 LAN 访问授权。");
+                    return;
                 }
             }
 

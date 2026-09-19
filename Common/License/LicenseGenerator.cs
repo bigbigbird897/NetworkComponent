@@ -32,7 +32,11 @@ namespace Common.License
         /// <summary>
         /// 快捷生成永久授权 license。
         /// </summary>
-        public static string GeneratePermanent(string privateKeyXml, string machineCode, string customer)
+        /// <param name="privateKeyXml">软件商 RSA 私钥（XML）</param>
+        /// <param name="machineCode">客户机器码</param>
+        /// <param name="customer">客户名称（备注）</param>
+        /// <param name="allowLanAccess">是否允许局域网其他设备调用（增值授权）</param>
+        public static string GeneratePermanent(string privateKeyXml, string machineCode, string customer, bool allowLanAccess = false)
         {
             return Generate(privateKeyXml, new LicenseInfo
             {
@@ -40,14 +44,20 @@ namespace Common.License
                 LicenseType = "Permanent",
                 ExpireAt = null,
                 IssuedAt = DateTime.Now,
-                Customer = customer
+                Customer = customer,
+                AllowLanAccess = allowLanAccess
             });
         }
 
         /// <summary>
         /// 快捷生成指定天数的试用 license。
         /// </summary>
-        public static string GenerateTrial(string privateKeyXml, string machineCode, string customer, int days)
+        /// <param name="privateKeyXml">软件商 RSA 私钥（XML）</param>
+        /// <param name="machineCode">客户机器码</param>
+        /// <param name="customer">客户名称（备注）</param>
+        /// <param name="days">试用天数</param>
+        /// <param name="allowLanAccess">是否允许局域网其他设备调用（增值授权）</param>
+        public static string GenerateTrial(string privateKeyXml, string machineCode, string customer, int days, bool allowLanAccess = false)
         {
             return Generate(privateKeyXml, new LicenseInfo
             {
@@ -55,7 +65,8 @@ namespace Common.License
                 LicenseType = "Trial",
                 ExpireAt = DateTime.Now.AddDays(days),
                 IssuedAt = DateTime.Now,
-                Customer = customer
+                Customer = customer,
+                AllowLanAccess = allowLanAccess
             });
         }
     }

@@ -49,19 +49,21 @@ public partial class MainWindow : Window
                 throw new Exception("请填写客户机器码");
 
             string privateKey = File.ReadAllText(keyPath).Trim();
+            // 是否授权局域网其他设备调用（增值开关，由私钥签名固化进 license）
+            bool allowLan = chkLanAccess != null && chkLanAccess.IsChecked == true;
             string license;
 
             if (rbTrial.IsChecked == true)
             {
                 if (!int.TryParse(txtDays.Text.Trim(), out int days) || days <= 0)
                     throw new Exception("试用天数必须是正整数");
-                license = LicenseGenerator.GenerateTrial(privateKey, machine, customer, days);
-                lblStatus.Text = $"已生成 {days} 天试用 license。";
+                license = LicenseGenerator.GenerateTrial(privateKey, machine, customer, days, allowLan);
+                lblStatus.Text = $"已生成 {days} 天试用 license（LAN访问：{(allowLan ? "已开通" : "仅本机")}）。";
             }
             else
             {
-                license = LicenseGenerator.GeneratePermanent(privateKey, machine, customer);
-                lblStatus.Text = "已生成永久 license。";
+                license = LicenseGenerator.GeneratePermanent(privateKey, machine, customer, allowLan);
+                lblStatus.Text = $"已生成永久 license（LAN访问：{(allowLan ? "已开通" : "仅本机")}）。";
             }
 
             var sfd = new SaveFileDialog

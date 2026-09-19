@@ -2,6 +2,7 @@ using ArchitectureConfiguration;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
 using Common.License;
+using ConnectionMqtt;
 using ConnectionSocket;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.Extensions.DependencyInjection.Extensions;

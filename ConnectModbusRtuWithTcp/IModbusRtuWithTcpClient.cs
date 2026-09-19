@@ -1,4 +1,4 @@
-﻿using ConnectionModbusRtuWithTcp.Model;
+﻿using ConnectionModbusRtuWithTcp.LocalEntity;
 using System;
 using System.Collections.Generic;
 using System.Text;

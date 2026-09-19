@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace ConnectionModbusRtuWithTcp.Model
+namespace ConnectionModbusRtuWithTcp.LocalEntity
 {
     /// <summary>
     /// Modbus RTU over TCP 客户端连接配置

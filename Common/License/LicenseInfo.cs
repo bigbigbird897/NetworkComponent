@@ -23,5 +23,12 @@ namespace Common.License
 
         /// <summary>客户名称/备注</summary>
         public string Customer { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 是否允许局域网内其他设备调用 HTTP 接口（可售卖的增值授权）。
+        /// 默认 false：仅本机回环可调用；true：允许局域网非回环地址访问。
+        /// 由软件商私钥签名，客户无法自行开启。
+        /// </summary>
+        public bool AllowLanAccess { get; set; } = false;
     }
 }

@@ -23,14 +23,14 @@ namespace ConnectionSocket
         private readonly ConcurrentDictionary<string, SocketClientConfig> _deviceDict = new();
 
         /// <summary>
-        /// 构造函数：读取 "SocketConfigs" 节并加载全部设备配置。
+        /// 构造函数：读取 "SocketClientConfigs" 节并加载全部设备配置。
         /// </summary>
         public SocketClientService(IConfiguration config, ILogger<SocketClientService> logger)
         {
             _config = config;
             _logger = logger;
 
-            var list = _config.GetSection("SocketConfigs").Get<List<SocketClientConfig>>() ?? new();
+            var list = _config.GetSection("SocketClientConfigs").Get<List<SocketClientConfig>>() ?? new();
             foreach (var item in list)
             {
                 if (!string.IsNullOrWhiteSpace(item.DeviceCode))

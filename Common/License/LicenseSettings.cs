@@ -13,13 +13,10 @@ namespace Common.License
         /// <summary>license 文件名（放在程序运行目录）。</summary>
         public string LicenseFileName { get; set; } = "license.lic";
 
-        /// <summary>无正式 license 时的试用天数。</summary>
-        public int TrialDays { get; set; } = 30;
-
         /// <summary>调用业务接口必须携带的 API Key（请求头 X-Api-Key）；为空则不校验（仅调试）。</summary>
         public string ApiKey { get; set; } = string.Empty;
 
-        /// <summary>允许调用本服务的客户端 IP 白名单；为空表示不限制。</summary>
-        public List<string> IpWhitelist { get; set; } = new();
+        // 注意：是否允许局域网其他设备调用，不再放在这里（客户可改）。
+        // 改为由签名 license 内的 AllowLanAccess 开关决定，默认仅本机回环可调用。
     }
 }

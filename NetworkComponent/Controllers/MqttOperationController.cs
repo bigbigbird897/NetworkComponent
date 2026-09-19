@@ -1,5 +1,6 @@
 ﻿using Common.GlobalHelper;
 using Common.LocalEntity;
+using ConnectionMqtt;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MQTTnet.Client;

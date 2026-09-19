@@ -11,14 +11,14 @@ namespace NetworkComponent.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]/[action]")]
-    public class SocketOperationController : ControllerBase
+    public class SocketClientOperationController : ControllerBase
     {
         private readonly ISocketClient _socketClient;
 
         /// <summary>
         /// 构造函数注入 Socket 客户端服务。
         /// </summary>
-        public SocketOperationController(ISocketClient socketClient)
+        public SocketClientOperationController(ISocketClient socketClient)
         {
             _socketClient = socketClient;
         }

@@ -1,7 +1,7 @@
 namespace ConnectionSocket.LocalEntity
 {
     /// <summary>
-    /// 通用 TCP Socket 客户端连接配置（与 appsettings.json 中 "SocketConfigs" 节点对应）。
+    /// 通用 TCP Socket 客户端连接配置（与 appsettings.json 中 "SocketClientConfigs" 节点对应）。
     /// 用于透传报文与非标 TCP 设备通信，报文格式由调用方自行约定。
     /// </summary>
     public class SocketClientConfig
