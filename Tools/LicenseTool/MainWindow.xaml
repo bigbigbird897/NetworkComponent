@@ -1,0 +1,62 @@
+<Window x:Class="LicenseTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="通枢工业通信中间件 - License 签发工具" Width="620" Height="430"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="软件商 License 签发工具（请勿随产品发布）"
+                   FontSize="15" FontWeight="Bold" Margin="0,0,0,12"/>
+
+        <!-- 私钥文件 -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="私钥文件：" Width="90" VerticalAlignment="Center"/>
+            <TextBox x:Name="txtKeyPath" Width="380" VerticalAlignment="Center"/>
+            <Button Content="浏览..." Click="OnBrowseKey" Margin="6,0,0,0"/>
+        </StackPanel>
+
+        <!-- 机器码 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="客户机器码：" Width="90" VerticalAlignment="Center"/>
+            <TextBox x:Name="txtMachine" Width="380" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- 客户名 -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="客户名称：" Width="90" VerticalAlignment="Center"/>
+            <TextBox x:Name="txtCustomer" Width="380" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- 授权类型 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="授权类型：" Width="90" VerticalAlignment="Center"/>
+            <RadioButton x:Name="rbPermanent" Content="永久授权" IsChecked="True"
+                         VerticalAlignment="Center" Margin="0,0,16,0" Checked="OnTypeChanged"/>
+            <RadioButton x:Name="rbTrial" Content="限时试用" VerticalAlignment="Center" Checked="OnTypeChanged"/>
+        </StackPanel>
+
+        <!-- 试用天数 -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="试用天数：" Width="90" VerticalAlignment="Center"/>
+            <TextBox x:Name="txtDays" Width="100" Text="30" IsEnabled="False" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- 生成按钮 -->
+        <Button Grid.Row="6" Content="生成 license.lic" Click="OnGenerate"
+                HorizontalAlignment="Left" Padding="16,6" Margin="0,8,0,0"/>
+
+        <!-- 状态 -->
+        <TextBlock Grid.Row="7" x:Name="lblStatus" Text="就绪" TextWrapping="Wrap"
+                   VerticalAlignment="Top" Margin="0,12,0,0" Foreground="#444"/>
+    </Grid>
+</Window>

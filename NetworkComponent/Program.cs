@@ -1,11 +1,13 @@
 using ArchitectureConfiguration;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
+using Common.License;
 using ConnectionSocket;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.OpenApi;
 using NetworkComponent.ArchitectureConfiguration;
+using NetworkComponent.License;
 using Serilog;
 using SqlSugar;
 
@@ -95,6 +97,12 @@ namespace NetworkComponent
             });
             #endregion
 
+            #region 授权与接口访问控制（机器绑定 license + API Key + IP 白名单）
+            var licenseSettings = builder.Configuration.GetSection("License").Get<LicenseSettings>() ?? new LicenseSettings();
+            builder.Services.AddSingleton(licenseSettings);
+            builder.Services.AddSingleton(new LicenseManager(licenseSettings));
+            #endregion
+
             var app = builder.Build();
 
             #region HTTP 请求管道
@@ -112,6 +120,9 @@ namespace NetworkComponent
 
             // 记录每个 HTTP 请求的 Serilog 日志
             app.UseSerilogRequestLogging();
+
+            // 授权 + API Key + IP 白名单 网关（放在业务路由之前）
+            app.UseMiddleware<LicenseGuardMiddleware>();
 
             app.UseHttpsRedirection();
             app.UseAuthorization();

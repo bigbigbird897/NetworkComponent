@@ -368,3 +368,36 @@ session.Close();
 
 如果你告诉我你用的语言（C#/Python）和OPC UA SDK，我可以直接给你一套可运行最小Demo，包含读、写、订阅代码。
 
+---
+
+### 2026-09-19 新增软件授权（机器绑定）与接口访问控制
+
+1. **授权模型**：按“单台设备永久授权 + 限时试用”设计。
+   - 机器码：`System盘卷序列号 + 首张活动网卡MAC` → SHA256 取前 16 位十六进制，同一台机器稳定、换机即变。
+   - license 文件：`运行目录/license.lic`，格式 `Base64(载荷JSON).Base64(RSA签名)`，软件商私钥签名、程序内公钥验签，防篡改。
+   - 永久授权：载荷 `LicenseType=Permanent`、无到期时间；试用：`ExpireAt=到期时间`。
+   - 无 license 文件时走内置试用：首次运行在 `%ProgramData%/NetworkComponent/.trial` 记开始时间，默认 30 天。
+2. **新增文件（Common/License）**：
+   - `LicenseInfo.cs`（载荷）、`LicenseStatus.cs`（状态枚举）、`LicenseSettings.cs`（配置）。
+   - `MachineCodeHelper.cs`：机器码生成。
+   - `LicenseManager.cs`：验签 + 机器码比对 + 到期判断 + 试用逻辑。
+   - `LicenseGenerator.cs`：**软件商侧**生成 license（保留私钥用）。
+3. **Web 层**：
+   - `License/LicenseGuardMiddleware.cs`：业务请求统一网关，依次校验 **授权状态 → X-Api-Key → 客户端 IP 白名单**；未过返回 403/401 统一 JSON。
+   - `Controllers/LicenseController.cs`：`GetMachineCode`（客户把机器码发你）、`GetStatus`（查看授权状态）。
+4. **签发工具**：`Tools/LicenseTool`（**WPF 桌面程序，不要随产品发布**）。界面操作：选择私钥文件 → 填客户机器码、客户名 → 选“永久授权/限时试用(天数)” → 点“生成 license.lic”并另存。输出：`Tools/LicenseTool/bin/Debug/net10.0-windows/LicenseTool.exe`。
+5. **配置（appsettings.json 的 License 节）**：
+   - `PublicKey`：RSA 公钥（已填本次生成值）。
+   - `ApiKey`：调用业务接口必须带的请求头 `X-Api-Key`（默认 `nc-prod-a8f3k2`，上线请改）。
+   - `IpWhitelist`：允许调用的客户端 IP；本机回环(127.0.0.1/::1)自动放行。
+   - `TrialDays`：试用天数。
+6. **密钥保管**：本次 RSA 私钥已存到项目外的 `..\_授权密钥_勿发布\license_private.xml`，**切勿打包进客户部署目录**；公钥在程序里。
+7. **验证**：无 license 时返回“试用中剩余 30 天”；缺/错 ApiKey 返回 40101；用私钥为本机机器码签永久 license 后重启，`GetStatus` 显示“永久授权”，带正确 ApiKey 的业务接口 200 正常返回。
+8. **防“部署到网络被别人直接调用”**：① 默认把服务监听绑在 `127.0.0.1`（按需用 `ASPNETCORE_URLS` 放开到网卡）；② 所有业务接口强制 `X-Api-Key`；③ 配置 `IpWhitelist` 只放行业务机；④ 授权按机器绑定，license 拷到别的机器也无法使用。
+
+### 2026-09-19 LicenseTool 改为 WPF 桌面程序
+
+1. `Tools/LicenseTool` 由控制台改为 WPF（`UseWPF`、`net10.0-windows`、`WinExe`），删除原 `Program.cs`，新增 `App.xaml/.cs`、`MainWindow.xaml/.cs`。
+2. 界面流程：浏览选择私钥 XML → 填客户机器码、客户名 → 单选“永久授权/限时试用”（选试用时启用天数输入）→ 点“生成 license.lic”并另存。
+3. 业务逻辑仍复用 `Common/License/LicenseGenerator.cs`；输出 `Tools/LicenseTool/bin/Debug/net10.0-windows/LicenseTool.exe`，编译 0 警告 0 错误。
+
