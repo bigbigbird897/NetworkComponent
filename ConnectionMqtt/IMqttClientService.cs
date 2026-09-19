@@ -68,7 +68,10 @@ public interface IMqttClientService
 
     Task UnSubscribeAsync(string clientId, string topic, Func<MqttApplicationMessageReceivedEventArgs, Task> receiveHandler);
 
-
+    /// <summary>
+    /// 获取全部已加载的 Socket 设备编码列表。
+    /// </summary>
+    List<string> GetAllDeviceCodes();
 
 
     /// <summary>

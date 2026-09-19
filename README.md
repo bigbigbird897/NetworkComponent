@@ -1,0 +1,163 @@
+# NetworkComponent 通枢工业通信中间件
+
+基于 **.NET 10 / ASP.NET Core** 的工业设备通信中间件，以 REST API 形式对外统一暴露
+Modbus、MQTT、OPC UA、TCP Socket 等工业总线通信能力，供上位机 / HMI / 业务系统调用。
+
+---
+
+## 一、解决方案结构
+
+解决方案文件：`NetworkComponent.slnx`，共 8 个项目，分层如下：
+
+| 项目 | 职责 |
+| --- | --- |
+| **NetworkComponent**（Web 入口） | ASP.NET Core 主机，包含 `Program.cs`、Controllers、统一报文实体；承载 HTTP API、Swagger、Serilog、SqlSugar 初始化。 |
+| **ArchitectureConfiguration** | Autofac 依赖注入模块，批量扫描各通信程序集并注册“接口 → 实现”。 |
+| **Common** | 公共基础库：统一返回模型、API 返回助手、JSON/字符串/反射等通用工具；所有第三方通信依赖包集中安装于此。 |
+| **ConnectionModbusTcp** | 标准 Modbus-TCP（MBAP+PDU）客户端，03/06/10 功能码。 |
+| **ConnectModbusRtuWithTcp** | Modbus RTU over TCP 客户端（含 CRC16 校验）。 |
+| **ConnectionMqtt** | 多 MQTT 客户端管理（连接、发布、订阅、托管订阅、请求-应答、断线重连）。 |
+| **ConnectionOPCUA**（本次新增） | OPC UA 客户端（会话管理、节点读/写、批量读、连接测试）。 |
+| **ConnectionSocket**（本次新增） | 通用 TCP Socket 短连接收发（二进制 / 字符串）。 |
+
+依赖关系：所有 `ConnectionXxx` 与 `ArchitectureConfiguration` 均引用 `Common`；Web 项目引用全部模块。
+
+---
+
+## 二、基础框架与技术栈
+
+- **运行时**：.NET 10（ASP.NET Core Web）。
+- **依赖注入**：Autofac（`Autofac.Extensions.DependencyInjection` + `Autofac.Extras.DynamicProxy`），替换默认容器；通信服务以**单例**注册并开启属性注入，控制器走 Autofac 激活。
+- **日志**：Serilog（控制台 + 按天滚动文件 `logs/nc-*.log`），并接入 `UseSerilogRequestLogging` 记录 HTTP 请求。
+- **API 文档**：Swashbuckle.AspNetCore（Swagger），开发环境根路径 `/swagger` 可直接打开文档页。
+- **ORM**：SqlSugarCore（`SqlSugarScope` 单例，线程安全，自动关闭连接），连接串来自 `appsettings.json`。
+- **工业通信库**：MQTTnet（MQTT）、OPCFoundation.NetStandard.Opc.Ua（OPC UA）、原生 `System.Net.Sockets`（Modbus/Socket）。
+- **JSON**：Newtonsoft.Json。
+
+### 统一返回模型
+
+所有接口返回 `Common.LocalEntity.ApiUnifiedReturnStructure<T>`：
+
+```json
+{ "code": 200, "msg": "操作成功", "data": { }, "timestamp": "2026-09-19 11:44:40" }
+```
+
+通过 `ApiReturnHelper.Success / ClientError / ServerError` 统一构造。
+
+---
+
+## 三、核心配置说明（appsettings.json）
+
+| 配置节 | 说明 |
+| --- | --- |
+| `Serilog` | 日志最小级别与输出过滤。 |
+| `SqlSugar` | `DbType`、`ConnectionString`、`IsAutoCloseConnection`，按实际数据库修改。 |
+| `ModbusTcpConfigs` | Modbus-TCP 设备列表：`DeviceCode / IpAddress / Port / SlaveId / TimeoutMs / WaitResponse`。 |
+| `ModbusRtuWithTcpConfigs` | RTU-over-TCP 设备列表，字段同上。 |
+| `MqttConfigs` | MQTT 客户端列表：`ClientId / ServerIp / Port / UserName / Password / CleanSession / KeepAliveSecond`。 |
+| `OpcUaConfigs` | OPC UA 设备列表：`DeviceCode / EndpointUrl(opc.tcp://) / UseSecurity / AutoAcceptUntrustedCertificates / OperationTimeoutMs / UserName / Password`。 |
+| `SocketConfigs` | 通用 Socket 设备列表：`DeviceCode / IpAddress / Port / TimeoutMs / WaitResponse / Encoding`。 |
+
+> 示例配置中设备地址均为 `127.0.0.1` 占位，**上线前请按真实设备修改**。各通信服务为懒加载，配置错误不会阻断程序启动。
+
+---
+
+## 四、对外接口一览（开发环境 `/swagger`）
+
+| 控制器 | 主要接口 |
+| --- | --- |
+| `ModbusTcpOperation` | `ReadRegister(03)` / `ReadCoil(01)` / `ReadDiscreteInput(02)` / `ReadInputRegister(04)` / `WriteSingleRegister(06)` / `WriteSingleCoil(05)` / `WriteMultiRegister(10)` / `WriteMultiCoil(0F)` / `SendRawPacket` / `GetAllDeviceCode` |
+| `ModbusRtuOperation` | `ReadRegister(03)` / `ReadCoil(01)` / `ReadDiscreteInput(02)` / `ReadInputRegister(04)` / `WriteSingleRegister(06)` / `WriteSingleCoil(05)` / `WriteMultiCoil(0F)` / `GetAllDeviceCode` |
+| `MqttOperation` | `PublishMsg` / `SubTopic` / `UnSubTopic` / `PublishAndWaitReply` |
+| `OpcUaOperation`（新增） | `ReadNode` / `ReadNodes` / `WriteNode` / `TestConnection` / `GetAllDeviceCode` |
+| `SocketOperation`（新增） | `SendAndReceiveBytes` / `SendAndReceiveString` / `SendOnly` / `TestConnection` / `GetAllDeviceCode` |
+| `SocketServerOperation`（新增） | `StartServer` / `StopServer` / `SendToClient` / `SendStringToClient` / `Broadcast` / `BroadcastString` / `GetConnectedClients` / `GetRecentMessages` / `GetAllServerCode` |
+
+---
+
+## 五、解决了什么问题
+
+1. **多协议统一接入**：把 Modbus-TCP、Modbus-RTU-over-TCP、MQTT、OPC UA、通用 TCP Socket 收敛到同一进程、同一套 REST API 与统一返回结构，业务侧无需关心底层协议细节。
+2. **多设备管理**：每类协议支持在配置中声明多台设备，按 `DeviceCode` 寻址，内存缓存配置与连接，避免每次请求重复建连。
+3. **可维护的 DI 架构**：Autofac 按程序集批量注册，新增通信模块只需在 `AutofacConfig.ConnectionAssemblyFiles` 中追加 dll 名即可自动接入。
+4. **可观测性**：Serilog 控制台 + 文件双输出，通信收发报文以十六进制/内容打日志；Swagger 在线调试。
+5. **工程化**：统一异常/返回模型、SqlSugar 数据访问占位、Nullable 可空注解清理，保证 `0 警告 0 错误` 编译。
+
+---
+
+## 六、运行方式
+
+```powershell
+# 还原并编译
+dotnet build NetworkComponent.slnx
+
+# 运行（默认 http://localhost:5126 ，Swagger 见 http://localhost:5126/swagger）
+dotnet run --project NetworkComponent
+```
+
+---
+
+## 七、更改记录
+
+> 按要求，每次修改都在此追加记录。
+
+### 2026-09-19 初始化梳理 + 新增 OPCUA/Socket + 工程化接入
+
+1. **README 初版**：梳理现有框架、组件、配置与解决的问题并落档。
+2. **新增 ConnectionOPCUA**：
+   - `LocalEntity/OpcUaClientConfig.cs`：OPC UA 单设备配置实体。
+   - `IOpcUaClient.cs`：节点读/批量读/写、连接测试、会话关闭等接口。
+   - `OpcUaClientService.cs`：基于 OPCFoundation `Session.Create` 的实现，会话按 `DeviceCode` 缓存、惰性建连、断线自动重建；用户名密码认证密码按 UTF-8 字节传入。
+3. **新增 ConnectionSocket**：
+   - `LocalEntity/SocketClientConfig.cs`：通用 Socket 配置实体。
+   - `ISocketClient.cs` / `SocketClientService.cs`：短连接“连接-发送-接收-断开”，支持二进制与字符串收发、纯发送、连通性测试。
+4. **新增 Controller**：
+   - `OpcUaOperationController.cs`、`SocketOperationController.cs`，含对应请求 DTO。
+5. **依赖包安装到 Common 项目**：
+   - `OPCFoundation.NetStandard.Opc.Ua` 1.5.378.176
+   - `SqlSugarCore` 5.1.4.221
+   - `Microsoft.Extensions.Configuration.Abstractions` / `Microsoft.Extensions.Logging.Abstractions` 10.0.12（显式补齐，供通信模块自读配置）
+6. **主 Web 项目新增包**：`Swashbuckle.AspNetCore` 10.2.3、`Serilog.AspNetCore` 10.0.0、`Serilog.Sinks.Console` 6.1.1、`Serilog.Sinks.File` 7.0.0。
+7. **Program.cs 接入**：
+   - Serilog（`UseSerilog` + 控制台/按天文件 + `UseSerilogRequestLogging`）。
+   - Swagger（`AddSwaggerGen` + `UseSwagger/UseSwaggerUI`，根路径 `/swagger`）。
+   - SqlSugar（`AddSingleton<ISqlSugarClient>` 注册 `SqlSugarScope`，连接串读自配置）。
+   - 启动时安全初始化 MQTT 多客户端（失败不阻断主程序）。
+8. **修复 Autofac 注册 Bug**：原 `AutofacConfig.cs` 五个分支均错误地注册了同一程序集（复制粘贴遗漏），改为遍历 `ConnectionAssemblyFiles` 正确注册各通信程序集。
+9. **统一配置加载方式**：`ModbusTcpClient`、`ModbusRtuWithTcpClient` 由“构造函数注入 List 配置”改为“自 `IConfiguration` 读取对应配置节”，与 MQTT/OPCUA/Socket 保持一致，**修复了 Autofac 无法解析 `List<配置>` 构造参数导致控制器运行时 500 的问题**。
+10. **appsettings.json**：补充 `Serilog`、`SqlSugar`、各通信模块配置节及示例设备。
+11. **代码优化与中文注释**：全量补充 XML 注释；清理 Nullable 警告（统一返回模型、API 助手、对象-字典工具、各 Controller、HitbotMessage），编译达到 **0 警告 0 错误**。
+12. **冒烟验证**：程序正常启动，`/swagger/v1/swagger.json` 返回全部接口；`OpcUaOperation/SocketOperation/ModbusTcpOperation/GetAllDeviceCode` 均 HTTP 200 正常返回。
+
+### 2026-09-19 修复 Socket 中文乱码（GBK 编码）
+
+1. **问题**：通过 `SendAndReceiveString` 发送中文，接收端显示为 `浣犲ソ` 之类乱码。
+   原因：默认按 UTF-8 发送，而接收设备（中文 Windows 工具）按 GBK（代码页 936）解码。
+2. **修复**：
+   - `Program.cs` 启动最前面注册 `CodePagesEncodingProvider.Instance`，使 .NET 可用 GBK/GB2312 编码。
+   - 在 `appsettings.json` 的对应 `SocketConfigs` 设备节点把 `"Encoding": "UTF-8"` 改为 `"Encoding": "GBK"` 即可正常收发中文（收发均按该编码编解码）。
+3. 其它编码：设备用什么编码就填什么（UTF-8 / GBK / ASCII 等），发送与回包解析共用该编码。
+
+### 2026-09-19 新增 ConnectionSocket 的 SocketServer（监听端）能力
+
+1. **新增文件**：
+   - `LocalEntity/SocketServerConfig.cs`：服务端监听配置（`ServerCode / IpAddress / Port / Encoding`）。
+   - `LocalEntity/ReceivedSocketMessage.cs`：收到消息的观测实体（原始字节、按编码解码文本、时间）。
+   - `ISocketServerService.cs` / `SocketServerService.cs`：服务端实现，`TcpListener` 接受多客户端连接，每连接独立异步收发。
+2. **能力**：启动/停止监听、向指定客户端单发字节/字符串、向全体客户端广播字节/字符串、查询在线客户端、查询最近收到的消息（每服务端环形缓冲保留 100 条）；断线/异常自动清理客户端。
+3. **Controller**：新增 `SocketServerOperationController.cs`，提供 `StartServer / StopServer / SendToClient / SendStringToClient / Broadcast / BroadcastString / GetConnectedClients / GetRecentMessages / GetAllServerCode` 接口及对应 DTO。
+4. **配置**：`appsettings.json` 新增 `SocketServerConfigs` 节，示例监听 `0.0.0.0:9001`，编码 `GBK`。
+5. **DI**：服务随 `ConnectionSocket.dll` 被 Autofac 自动扫描注册为单例，无需改动注册代码。
+6. **验证**：启动服务端后用 TCP 客户端连接并发送中文「你好服务端」，`GetConnectedClients` 正确显示在线客户端，`GetRecentMessages` 按 GBK 正确解码文本；编译 0 警告 0 错误。
+
+### 2026-09-19 补齐 Modbus 功能码（01/02/04/05/0F）
+
+1. **需求**：参照功能码清单，原仅实现 03 读保持寄存器、06 写单寄存器、10 写多寄存器；本次补齐线圈与离散量相关功能码。
+2. **ConnectionModbusTcp 与 ConnectModbusRtuWithTcp 同步新增接口与实现**：
+   - `ReadCoilsAsync`（01 读线圈）、`ReadDiscreteInputsAsync`（02 读离散输入）：返回 `bool[]`，应答位数据按“每字节低位在前”解包。
+   - `ReadInputRegistersAsync`（04 读输入寄存器）：返回 `ushort[]`，报文与 03 一致。
+   - `WriteSingleCoilAsync`（05 写单线圈）：ON=0xFF00 / OFF=0x0000，应答回环校验。
+   - `WriteMultiCoilsAsync`（0F 写多线圈）：`bool[]` 按位打包为字节（低位在前）后下发。
+   - 实现中抽取了 `ReadBitStatusAsync` / `ReadRegistersByFuncAsync` 私有公共方法，TCP 走 MBAP 解析、RTU 走从站+CRC16 校验解析。
+3. **Controller**：`ModbusTcpOperation` 与 `ModbusRtuOverTcpOperation` 各新增 `ReadCoil / ReadDiscreteInput / ReadInputRegister / WriteSingleCoil / WriteMultiCoil` 测试接口；批量写线圈复用 DTO `ModbusMultiCoilDto`（`DeviceCode / StartAddr / Values`）。
+4. **验证**：编译 0 警告 0 错误；新接口已出现在 `/swagger`。

@@ -1,7 +1,10 @@
 <Solution>
+  <Project Path="ArchitectureConfiguration/ArchitectureConfiguration.csproj" Id="c892ec05-62fa-4a2a-807d-b7aeea992f6f" />
   <Project Path="Common/Common.csproj" Id="662f917d-895d-4a9c-b94f-32ccd2332175" />
   <Project Path="ConnectionModbusTcp/ConnectionModbusTcp.csproj" />
   <Project Path="ConnectionMqtt/ConnectionMqtt.csproj" />
+  <Project Path="ConnectionOPCUA/ConnectionOPCUA.csproj" Id="5c440d40-cb32-44f1-8650-54e2a12eec32" />
+  <Project Path="ConnectionSocket/ConnectionSocket.csproj" Id="c73c9629-aad5-4db9-b4fe-511121c8d082" />
   <Project Path="ConnectModbusRtuWithTcp/ConnectionModbusRtuWithTcp.csproj" />
   <Project Path="NetworkComponent/NetworkComponent.csproj" />
 </Solution>

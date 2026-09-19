@@ -1,4 +1,5 @@
 ﻿using ConnectionModbusTcp.LocalEntity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
@@ -10,24 +11,31 @@ using System.Text;
 
 namespace ConnectionModbusTcp
 {
+    /// <summary>
+    /// 标准 Modbus-TCP 客户端实现。
+    /// 自 appsettings.json 的 "ModbusTcpConfigs" 节读取多设备配置，按 DeviceCode 缓存；
+    /// 每次读写走短连接，按 MBAP+PDU 组包/解析。
+    /// </summary>
     public class ModbusTcpClient : IModbusTcpClient
     {
         private readonly ILogger<ModbusTcpClient> _logger;
         private readonly ConcurrentDictionary<string, ModbusTcpClientConfig> _deviceDict = new();
 
         /// <summary>
-        /// 构造函数注入预加载设备配置
+        /// 构造函数：由 Autofac 注入配置与日志，启动时加载全部 ModbusTcp 设备配置。
         /// </summary>
-        public ModbusTcpClient(ILogger<ModbusTcpClient> logger, List<ModbusTcpClientConfig> deviceConfigs)
+        public ModbusTcpClient(ILogger<ModbusTcpClient> logger, IConfiguration config)
         {
             _logger = logger;
-           if(deviceConfigs!=null)
+            var deviceConfigs = config.GetSection("ModbusTcpConfigs").Get<List<ModbusTcpClientConfig>>() ?? new();
+            foreach (var dev in deviceConfigs)
             {
-                foreach (var dev in deviceConfigs)
+                if (!string.IsNullOrWhiteSpace(dev.DeviceCode))
                 {
                     _deviceDict.TryAdd(dev.DeviceCode, dev);
                 }
             }
+            _logger.LogInformation("ModbusTcp 已加载设备数：{Count}", _deviceDict.Count);
         }
 
         #region IModbusTcpClient 接口实现
@@ -229,6 +237,183 @@ namespace ConnectionModbusTcp
             ushort transactionId = (ushort)Random.Shared.Next(ushort.MaxValue);
             byte[] reqPacket = BuildModbusTcpPacket(transactionId, cfg.SlaveId, pdu);
             await SendRawTcpPacketAsync(deviceCode, reqPacket);
+        }
+
+        /// <summary>
+        /// 01功能码：读取线圈。
+        /// 应答：MBAP(7)+功能码+字节数+位数据，将位数据按小端位序解包为 bool[]。
+        /// </summary>
+        public async Task<bool[]> ReadCoilsAsync(string deviceCode, ushort startAddr, ushort count)
+        {
+            return await ReadBitStatusAsync(deviceCode, 0x01, startAddr, count);
+        }
+
+        /// <summary>
+        /// 02功能码：读取离散输入，报文格式与01一致。
+        /// </summary>
+        public async Task<bool[]> ReadDiscreteInputsAsync(string deviceCode, ushort startAddr, ushort count)
+        {
+            return await ReadBitStatusAsync(deviceCode, 0x02, startAddr, count);
+        }
+
+        /// <summary>
+        /// 04功能码：读取输入寄存器，报文格式与03一致。
+        /// </summary>
+        public async Task<ushort[]> ReadInputRegistersAsync(string deviceCode, ushort startAddr, ushort count)
+        {
+            return await ReadRegistersByFuncAsync(deviceCode, 0x04, startAddr, count);
+        }
+
+        /// <summary>
+        /// 05功能码：写入单个线圈（ON=0xFF00，OFF=0x0000），设备应答应与请求PDU一致。
+        /// </summary>
+        public async Task WriteSingleCoilAsync(string deviceCode, ushort addr, bool value)
+        {
+            var cfg = GetDeviceConfig(deviceCode);
+            ushort coilValue = value ? (ushort)0xFF00 : (ushort)0x0000;
+            byte[] pdu =
+            {
+                0x05,
+                (byte)(addr >> 8),
+                (byte)(addr & 0xFF),
+                (byte)(coilValue >> 8),
+                (byte)(coilValue & 0xFF)
+            };
+            ushort transactionId = (ushort)Random.Shared.Next(ushort.MaxValue);
+            byte[] reqPacket = BuildModbusTcpPacket(transactionId, cfg.SlaveId, pdu);
+
+            var resp = await SendRawTcpPacketAsync(deviceCode, reqPacket);
+            int mbapLen = 7;
+            if (resp.Length < mbapLen + 5)
+                throw new Exception($"设备{deviceCode}写单线圈返回报文长度异常");
+
+            byte[] respPdu = resp.Skip(mbapLen).Take(5).ToArray();
+            if (!respPdu.SequenceEqual(pdu))
+                throw new Exception($"设备{deviceCode}写单线圈返回报文PDU不匹配");
+        }
+
+        /// <summary>
+        /// 0F功能码：批量写入多个线圈。bool[] 按位打包成字节（低位在前）。
+        /// </summary>
+        public async Task WriteMultiCoilsAsync(string deviceCode, ushort startAddr, bool[] values)
+        {
+            if (values == null || values.Length == 0)
+                throw new ArgumentException("写入线圈列表不能为空", nameof(values));
+
+            var cfg = GetDeviceConfig(deviceCode);
+            int quantity = values.Length;
+            int byteCount = (quantity + 7) / 8;
+            byte[] packed = new byte[byteCount];
+            for (int i = 0; i < quantity; i++)
+            {
+                if (values[i])
+                    packed[i / 8] |= (byte)(1 << (i % 8));
+            }
+
+            List<byte> pduBuilder = new List<byte>
+            {
+                0x0F,
+                (byte)(startAddr >> 8),
+                (byte)(startAddr & 0xFF),
+                (byte)(quantity >> 8),
+                (byte)(quantity & 0xFF),
+                (byte)byteCount
+            };
+            pduBuilder.AddRange(packed);
+            byte[] pdu = pduBuilder.ToArray();
+
+            ushort transactionId = (ushort)Random.Shared.Next(ushort.MaxValue);
+            byte[] reqPacket = BuildModbusTcpPacket(transactionId, cfg.SlaveId, pdu);
+            await SendRawTcpPacketAsync(deviceCode, reqPacket);
+        }
+
+        /// <summary>
+        /// 位状态读取公共实现（01读线圈 / 02读离散输入）。
+        /// </summary>
+        private async Task<bool[]> ReadBitStatusAsync(string deviceCode, byte funcCode, ushort startAddr, ushort count)
+        {
+            var cfg = GetDeviceConfig(deviceCode);
+            byte[] pdu =
+            {
+                funcCode,
+                (byte)(startAddr >> 8),
+                (byte)(startAddr & 0xFF),
+                (byte)(count >> 8),
+                (byte)(count & 0xFF)
+            };
+            ushort transactionId = (ushort)Random.Shared.Next(ushort.MaxValue);
+            byte[] requestPacket = BuildModbusTcpPacket(transactionId, cfg.SlaveId, pdu);
+
+            var respBytes = await SendRawTcpPacketAsync(deviceCode, requestPacket);
+
+            int mbapLen = 7;
+            if (respBytes.Length < mbapLen + 2)
+                throw new Exception($"设备{deviceCode}ModbusTcp应答报文长度不足");
+
+            byte respFuncCode = respBytes[mbapLen];
+            if ((respFuncCode & 0x80) != 0)
+                throw new Exception($"ModbusTcp设备{deviceCode}异常，异常码:{respBytes[mbapLen + 1]}");
+
+            int dataByteLen = respBytes[mbapLen + 1];
+            int needTotalLen = mbapLen + 2 + dataByteLen;
+            if (respBytes.Length < needTotalLen)
+                throw new Exception($"设备{deviceCode}应答报文截断，预期至少{needTotalLen}字节，实际收到{respBytes.Length}字节");
+
+            // 将返回的位字节流按“每字节低位在前”解包为 bool[count]
+            bool[] result = new bool[count];
+            for (int i = 0; i < count; i++)
+            {
+                int byteIdx = i / 8;
+                int bitIdx = i % 8;
+                byte b = respBytes[mbapLen + 2 + byteIdx];
+                result[i] = (b & (1 << bitIdx)) != 0;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 寄存器读取公共实现（03读保持寄存器 / 04读输入寄存器）。
+        /// </summary>
+        private async Task<ushort[]> ReadRegistersByFuncAsync(string deviceCode, byte funcCode, ushort startAddr, ushort count)
+        {
+            var cfg = GetDeviceConfig(deviceCode);
+            byte[] pdu =
+            {
+                funcCode,
+                (byte)(startAddr >> 8),
+                (byte)(startAddr & 0xFF),
+                (byte)(count >> 8),
+                (byte)(count & 0xFF)
+            };
+            ushort transactionId = (ushort)Random.Shared.Next(ushort.MaxValue);
+            byte[] requestPacket = BuildModbusTcpPacket(transactionId, cfg.SlaveId, pdu);
+
+            var respBytes = await SendRawTcpPacketAsync(deviceCode, requestPacket);
+
+            int mbapLen = 7;
+            if (respBytes.Length < mbapLen + 2)
+                throw new Exception($"设备{deviceCode}ModbusTcp应答报文长度不足");
+
+            byte respFuncCode = respBytes[mbapLen];
+            if ((respFuncCode & 0x80) != 0)
+                throw new Exception($"ModbusTcp设备{deviceCode}异常，异常码:{respBytes[mbapLen + 1]}");
+
+            int dataByteLen = respBytes[mbapLen + 1];
+            if (dataByteLen <= 0 || dataByteLen % 2 != 0)
+                throw new Exception($"设备{deviceCode}返回寄存器数据字节长度非法，dataByteLen={dataByteLen}");
+
+            int needTotalLen = mbapLen + 2 + dataByteLen;
+            if (respBytes.Length < needTotalLen)
+                throw new Exception($"设备{deviceCode}应答报文截断，预期至少{needTotalLen}字节，实际收到{respBytes.Length}字节");
+
+            ushort[] result = new ushort[dataByteLen / 2];
+            for (int i = 0; i < result.Length; i++)
+            {
+                byte high = respBytes[mbapLen + 2 + i * 2];
+                byte low = respBytes[mbapLen + 3 + i * 2];
+                result[i] = (ushort)(high << 8 | low);
+            }
+            return result;
         }
 
         public async Task<byte[]> SendRawTcpPacketAsync(string deviceCode, byte[] tcpPacketBytes)

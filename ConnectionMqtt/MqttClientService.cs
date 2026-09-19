@@ -362,6 +362,7 @@ namespace ConnectionMqtt
             _logger.LogInformation("MQTT[{ClientId}] 托管取消订阅主题:{Topic}", clientId, topic);
         }
 
+        public List<string> GetAllDeviceCodes()=> _clientDict.Keys.ToList();
     }
 
 }

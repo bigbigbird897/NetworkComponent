@@ -43,6 +43,49 @@ namespace ConnectionModbusRtuWithTcp
         Task WriteMultiRegistersAsync(string deviceCode, ushort startAddr, ushort[] values);
 
         /// <summary>
+        /// 01功能码：读取线圈（开关量输出）
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        /// <param name="startAddr">起始线圈地址（0开始）</param>
+        /// <param name="count">读取线圈数量</param>
+        /// <returns>线圈状态数组，true=ON</returns>
+        Task<bool[]> ReadCoilsAsync(string deviceCode, ushort startAddr, ushort count);
+
+        /// <summary>
+        /// 02功能码：读取离散输入（开关量输入）
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        /// <param name="startAddr">起始离散输入地址（0开始）</param>
+        /// <param name="count">读取数量</param>
+        /// <returns>离散输入状态数组，true=ON</returns>
+        Task<bool[]> ReadDiscreteInputsAsync(string deviceCode, ushort startAddr, ushort count);
+
+        /// <summary>
+        /// 04功能码：读取输入寄存器（只读模拟量输入）
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        /// <param name="startAddr">起始寄存器地址（0开始）</param>
+        /// <param name="count">读取寄存器数量</param>
+        /// <returns>寄存器原始ushort数组</returns>
+        Task<ushort[]> ReadInputRegistersAsync(string deviceCode, ushort startAddr, ushort count);
+
+        /// <summary>
+        /// 05功能码：写入单个线圈
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        /// <param name="addr">线圈地址（0开始）</param>
+        /// <param name="value">true=ON(0xFF00)，false=OFF(0x0000)</param>
+        Task WriteSingleCoilAsync(string deviceCode, ushort addr, bool value);
+
+        /// <summary>
+        /// 0F功能码：批量写入多个线圈
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        /// <param name="startAddr">起始线圈地址（0开始）</param>
+        /// <param name="values">线圈状态数组，true=ON</param>
+        Task WriteMultiCoilsAsync(string deviceCode, ushort startAddr, bool[] values);
+
+        /// <summary>
         /// 原始发送RTU报文（自定义功能码场景使用）
         /// </summary>
         /// <param name="deviceCode">设备编码</param>
