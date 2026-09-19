@@ -161,3 +161,210 @@ dotnet run --project NetworkComponent
    - 实现中抽取了 `ReadBitStatusAsync` / `ReadRegistersByFuncAsync` 私有公共方法，TCP 走 MBAP 解析、RTU 走从站+CRC16 校验解析。
 3. **Controller**：`ModbusTcpOperation` 与 `ModbusRtuOverTcpOperation` 各新增 `ReadCoil / ReadDiscreteInput / ReadInputRegister / WriteSingleCoil / WriteMultiCoil` 测试接口；批量写线圈复用 DTO `ModbusMultiCoilDto`（`DeviceCode / StartAddr / Values`）。
 4. **验证**：编译 0 警告 0 错误；新接口已出现在 `/swagger`。
+
+# OPC UA 客户端自测完整方案
+
+整体思路：**先用成熟OPC UA工具验证服务端是否正常 → 跑自己写的客户端做连通、读、写、订阅测试 → 异常场景压测**。
+
+> 推荐工具：UA Expert（最常用，Windows）、OPC UA Demo Server（Prosys / Unified Automation 免费模拟器，本地搭服务端，不用找真实设备）
+
+## 一、准备工作：搭建/确认OPC UA服务端可用
+
+> 优先先用模拟器，避免直接连生产设备
+
+1. 下载 **Prosys OPC UA Simulation Server**，启动后默认地址类似： `opc.tcp://127.0.0.1:53530/OPCUA/SimulationServer`
+
+2. 打开 UA Expert，输入上面地址，连接：
+
+   - 安全策略：`None`（本地调试用，正式环境要加密）
+   - 身份认证：匿名
+
+3. 能连上、能看到节点（如 
+
+   ```
+   ns=1;s=Counter
+   ```
+
+   、
+
+   ```
+   ns=1;s=Random
+   ```
+
+   ），说明服务端本身没问题；
+
+   > 如果UA Expert都连不上，**不是你客户端代码问题**，排查：端口、防火墙、安全策略、证书。
+
+> ✅ 节点标识：`ns=1;s=Counter`，后面代码读写都要用这个NodeId。
+
+## 二、自己OPC UA客户端 基础测试项（按顺序测）
+
+### 1. 连接测试
+
+目标：测试客户端建立会话、安全握手、证书信任 测试点：
+
+1. 正常连接：匿名/用户名密码登录，成功建立Session
+
+2. 错误用例（边界测试）
+
+   - 错误地址：`opc.tcp://127.0.0.1:9999`（端口不存在），预期：超时/连接拒绝
+
+   - 服务端关闭，尝试重连，客户端是否抛出合理异常
+
+   - 证书不被服务端信任：模拟器开启安全策略后，客户端证书未加入信任列表，预期返回安全错误
+
+     > 重点：OPC UA默认强制证书，调试阶段很多人直接设置安全策略=None跳过证书校验。
+
+### 2. 读取节点 Read 测试
+
+> 对应OPC UA Read服务
+
+1. 读取单个变量节点（如 
+
+   ```
+   ns=1;s=Counter
+   ```
+
+   ）
+
+   - 校验返回值：`Value`、`StatusCode`、`SourceTimestamp`
+   - StatusCode = Good（0x00000000）才算读取成功
+
+2. 批量读取多个节点（一次Read请求传多个NodeId）
+
+   > 很多客户端库支持批量读，验证批量接口是否正常
+
+3. 异常读场景
+
+   - 读取不存在的NodeId：预期StatusCode=BadNodeIdUnknown
+   - 读取只读节点：读没问题，写会报错
+
+### 3. 修改数值 Write 测试
+
+> 对应OPC UA Write服务
+
+1. 找
+
+   可写节点
+
+   （模拟器的 
+
+   ```
+   ns=1;s=Counter
+   ```
+
+    支持写）
+
+   - 写入同类型值：节点是Int32，写入整数 100
+   - 写完立刻Read读回来，校验值等于刚写入的值（闭环验证）
+
+2. 异常写场景
+
+   - 写入类型不匹配：节点是Int32，写入字符串 → 返回BadTypeMismatch
+   - 写入只读节点：返回BadNotWritable
+   - 写入超出范围的值（如Int16上限）
+
+### 4. 数据订阅（MonitoredItem / Subscription）测试（最常用）
+
+> OPC UA 核心能力，不是轮询，是服务端主动推送
+
+1. 创建订阅，添加监控项，设置采样间隔（比如100ms）
+2. 观察：服务端变量变化，客户端能否收到通知（DataChange）
+3. 测试：
+   - 正常：变量变化 → 回调触发，拿到新值+时间戳
+   - 暂停订阅、删除订阅
+   - 网络短暂断开，重连后订阅是否恢复（看你的客户端是否做重连逻辑）
+
+### 5. 浏览节点 Browse 测试（可选）
+
+调用Browse接口，遍历服务端节点树，拿到子节点、节点属性。用于测试客户端地址空间浏览功能。
+
+## 三、推荐代码最小示例（C# OPC UA .NET Standard Stack）
+
+> 库：`OPC.Ua.Client`（OPC Foundation官方）
+
+```
+// 1. 配置端点，连接服务器
+var config = new ApplicationConfiguration
+{
+    ApplicationName = "MyOpcUaClient",
+    ApplicationUri = "urn:MyOpcUaClient",
+    SecurityConfiguration = new SecurityConfiguration
+    {
+        AutoAcceptUntrustedCertificates = true // 调试用！生产禁止
+    }
+};
+config.Validate();
+
+var endpointUrl = "opc.tcp://127.0.0.1:53530/OPCUA/SimulationServer";
+var endpoint = CoreClientUtils.SelectEndpoint(endpointUrl, false); // false=不加密
+
+using var session = Session.Create(config, new ConfiguredEndpoint(null, endpoint), false, "", 60000, null, null).Result;
+
+// 2. Read读取节点
+NodeId nodeId = new NodeId("Counter",1);
+var readResult = session.Read(nodeId);
+Console.WriteLine($"读取值：{readResult.Value}, Status={readResult.StatusCode}");
+
+// 3. Write写入节点
+WriteValue writeItem = new WriteValue
+{
+    NodeId = nodeId,
+    AttributeId = Attributes.Value,
+    Value = new DataValue(new Variant(99))
+};
+var writeRes = session.Write(new WriteValueCollection(){writeItem});
+Console.WriteLine($"写入结果：{writeRes[0]}");
+
+// 4. 订阅监控
+var sub = new Subscription(session.DefaultSubscription) { PublishingInterval = 100 };
+var item = new MonitoredItem(sub, nodeId);
+item.Notification += (o, e) =>
+{
+    Console.WriteLine($"收到推送：{e.NotificationValue}");
+};
+sub.AddItem(item);
+session.AddSubscription(sub);
+sub.Create();
+sub.StartMonitoring();
+
+Console.ReadLine();
+session.Close();
+```
+
+## 四、排查问题清单（常见坑）
+
+1. ✅ UA Expert能连，自己客户端连不上
+   - 证书问题：调试打开自动接受不受信任证书
+   - 安全策略不匹配：服务端只支持Basic256Sha256，你客户端配None
+   - 客户端应用名称/Uri配置缺失
+2. ✅ Read成功，Write失败
+   - 节点权限：只读节点无法写
+   - 数据类型不匹配，Variant封装错误
+3. ✅ 读写正常，订阅收不到数据
+   - PublishingInterval、采样间隔设置过大
+   - 忘记调用 `sub.Create()` / `StartMonitoring()`
+   - 回调线程阻塞
+4. ✅ 偶尔断连
+   - 会话超时参数不合理，需要增加断线重连机制
+
+## 五、自动化测试思路（如果你想写单元测试）
+
+1. 启动本地Prosys模拟器作为测试服务端
+2. 单元测试用例：
+   - Connect_Disconnect
+   - Read_ExistNode_ReturnGoodValue
+   - Read_NotExistNode_ReturnBad
+   - Write_ValidValue_ReadBackEquals
+   - Write_ReadOnlyNode_ReturnBadNotWritable
+   - Subscription_DataChangeReceive
+3. 可以用 xUnit / NUnit，测试前启动模拟器，测试结束关闭会话
+
+## 六、正式环境注意事项
+
+- 关闭 `AutoAcceptUntrustedCertificates`，生产必须证书管理
+- 增加断线重连、会话恢复、订阅重建逻辑
+- 增加超时控制，防止IO阻塞
+
+如果你告诉我你用的语言（C#/Python）和OPC UA SDK，我可以直接给你一套可运行最小Demo，包含读、写、订阅代码。
+
