@@ -122,6 +122,11 @@ namespace NetworkComponent
             // 记录每个 HTTP 请求的 Serilog 日志
             app.UseSerilogRequestLogging();
 
+            // 托管前端控制台（dist 产物放到 wwwroot，根路径即打开 SPA）
+            app.UseDefaultFiles();
+            app.UseStaticFiles();
+            app.MapFallbackToFile("index.html");
+
             // 授权 + API Key + IP 白名单 网关（放在业务路由之前）
             app.UseMiddleware<LicenseGuardMiddleware>();
 
