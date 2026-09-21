@@ -42,37 +42,48 @@ namespace NetworkComponent.Controllers
             return full;
         }
 
-        /// <summary>列出日志文件；date 形如 yyyy-MM-dd 时只返回该天</summary>
+        /// <summary>列出日志文件；startDate/endDate 形如 yyyy-MM-dd，按日期范围（含首尾）筛选，任一为空表示该侧不限</summary>
         [HttpGet]
-        public ApiUnifiedReturnStructure<object> GetList([FromQuery] string? date)
+        public ApiUnifiedReturnStructure<object> GetList([FromQuery] string? startDate, [FromQuery] string? endDate)
         {
             try
             {
                 if (!Directory.Exists(LogsDir))
                     return ApiReturnHelper.Success((object)new List<object>());
 
-                // 可选日期过滤
-                DateTime? day = null;
-                if (!string.IsNullOrWhiteSpace(date))
+                DateTime? from = null, to = null;
+                if (!string.IsNullOrWhiteSpace(startDate))
                 {
-                    if (!DateTime.TryParse(date, out var d))
-                        return ApiReturnHelper.ServerError(null, "日期格式应为 yyyy-MM-dd：" + date);
-                    day = d;
+                    if (!DateTime.TryParse(startDate, out var df))
+                        return ApiReturnHelper.ServerError(null, "开始日期格式应为 yyyy-MM-dd：" + startDate);
+                    from = df.Date;
+                }
+                if (!string.IsNullOrWhiteSpace(endDate))
+                {
+                    if (!DateTime.TryParse(endDate, out var dt))
+                        return ApiReturnHelper.ServerError(null, "结束日期格式应为 yyyy-MM-dd：" + endDate);
+                    to = dt.Date;
                 }
 
                 var result = Directory.EnumerateFiles(LogsDir, "nc-*.log", SearchOption.TopDirectoryOnly)
                     .Select(p => new FileInfo(p))
                     .Where(f =>
                     {
-                        if (day == null) return true;
+                        // 无任何日期条件则不过滤
+                        if (from == null && to == null) return true;
                         // 文件名形如 nc-20260919.log
                         var stem = Path.GetFileNameWithoutExtension(f.Name); // nc-20260919
                         if (stem != null && stem.StartsWith("nc-") &&
                             DateTime.TryParseExact(stem.Substring(3), "yyyyMMdd",
                                 System.Globalization.CultureInfo.InvariantCulture,
                                 System.Globalization.DateTimeStyles.None, out var fileDate))
-                            return fileDate.Date == day.Value.Date;
-                        return false;
+                        {
+                            if (from != null && fileDate.Date < from.Value.Date) return false;
+                            if (to != null && fileDate.Date > to.Value.Date) return false;
+                            return true;
+                        }
+                        // 解析不出日期的文件：无范围条件才显示
+                        return from == null && to == null;
                     })
                     .OrderByDescending(f => f.Name)
                     .Select(f => new
