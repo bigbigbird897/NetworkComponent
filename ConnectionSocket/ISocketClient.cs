@@ -49,5 +49,32 @@ namespace ConnectionSocket
         /// <param name="deviceCode">设备编码</param>
         /// <returns>连通成功返回 true，否则 false</returns>
         Task<bool> TestConnectionAsync(string deviceCode);
+
+        #region 长连接模式（配置 UseLongConnection=true 时 SendAndReceiveAsync/SendAsync 自动走长连接；也可手动管理）
+
+        /// <summary>
+        /// 手动打开指定设备的长连接并保持常驻（重复调用幂等：已打开则直接返回）。
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        Task OpenLongConnectionAsync(string deviceCode);
+
+        /// <summary>
+        /// 手动关闭指定设备的长连接（释放 Socket 与后台读取任务）。
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        Task CloseLongConnectionAsync(string deviceCode);
+
+        /// <summary>
+        /// 查询指定设备长连接的实时状态。
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        LongConnectionStatus GetLongConnectionStatus(string deviceCode);
+
+        /// <summary>
+        /// 是否已打开指定设备的长连接。
+        /// </summary>
+        bool IsLongConnectionOpen(string deviceCode);
+
+        #endregion
     }
 }

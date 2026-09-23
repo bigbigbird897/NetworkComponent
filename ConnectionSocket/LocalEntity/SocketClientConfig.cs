@@ -35,5 +35,12 @@ namespace ConnectionSocket.LocalEntity
         /// 字符串收发默认编码名（UTF-8 / ASCII / GBK 等），仅用于字符串便捷接口。
         /// </summary>
         public string Encoding { get; set; } = "UTF-8";
+
+        /// <summary>
+        /// 是否使用长连接模式（默认 false=短连接，发完即断）。
+        /// 为 true 时，同一设备复用一条 TCP 连接：首次调用建立连接并常驻，
+        /// 之后每次收发都在这条连接上进行，直到显式关闭或对端断开。
+        /// </summary>
+        public bool UseLongConnection { get; set; }
     }
 }

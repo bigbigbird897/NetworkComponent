@@ -1,4 +1,4 @@
-# NetworkComponent 通枢工业通信中间件
+# NetworkComponent 工业通信中间件
 
 基于 **.NET 10 / ASP.NET Core** 的工业设备通信中间件，以 REST API 形式对外统一暴露
 Modbus、MQTT、OPC UA、TCP Socket 等工业总线通信能力，供上位机 / HMI / 业务系统调用。
@@ -100,6 +100,23 @@ dotnet run --project NetworkComponent
 ## 七、更改记录
 
 > 按要求，每次修改都在此追加记录。
+
+### 2026-09-23 Socket 客户端：新增长连接模式 / 修复仅发送与 HEX 发送
+
+1. **新增长连接模式（保留短连接）**：
+   - `LocalEntity/SocketClientConfig.cs`：新增 `UseLongConnection`（默认 false）。`false`=原短连接（发完即断），`true`=同一设备复用一条常驻 TCP 连接。
+   - `ISocketClient.cs`：新增 `OpenLongConnectionAsync / CloseLongConnectionAsync / GetLongConnectionStatus / IsLongConnectionOpen` 长连接管理接口。
+   - `SocketClientService.cs`：内置 `LongTcpConnection` 封装——常驻 Socket + 后台读取循环 + 写锁串行化；断线自动重建；超时只丢弃迟到应答、不关闭连接。
+   - `SocketClientOperationController.cs`：新增 `OpenLongConnection / CloseLongConnection / GetLongConnectionStatus` 接口及 `SocketDeviceInput` DTO。
+   - `appsettings.json`：`SocketClientConfigs` 示例设备补 `"UseLongConnection": false`。
+2. **修复“仅发送(不等待)无法把字符串发到服务端”**：
+   - 原 `SendOnly` 只接受二进制 `Data`，前端传字符串会 400 或发空。
+   - Controller 新增 `SendOnlyString`（`SocketStringInput`），按设备配置编码把字符串转字节后发送。
+3. **修复“发送 16 进制报 400”**：
+   - 原 `SocketBinaryInput.Data` 为 `byte[]`，System.Text.Json 无法把 HEX 字符串（如 `"01 03 00 00"`）绑定到 `byte[]`，返回 400“JSON value could not be converted to System.Byte[]”。
+   - 新增 `HexByteArrayConverter`（`JsonConverter<byte[]>`）挂在 `Data` 上：兼容 **JSON 数字数组**、**HEX 字符串**（空格/逗号/分号分隔、可带 0x 前缀、可无分隔符）、**单个数字** 三种写法。
+4. **Web 控制台同步**：Socket 客户端页新增“仅发送字符串”“仅发送HEX”“打开/关闭/刷新长连接状态”；HEX 输入说明支持数组或字符串。
+5. **验证**：后端 `dotnet build` 0 错误；Web `npm run build` 通过。
 
 ### 2026-09-19 初始化梳理 + 新增 OPCUA/Socket + 工程化接入
 

@@ -65,7 +65,7 @@ namespace NetworkComponent
             {
                 c.SwaggerDoc("v1", new OpenApiInfo
                 {
-                    Title = "通枢工业通信中间件 API",
+                    Title = "工业通信中间件 API",
                     Version = "v1",
                     Description = "提供 ModbusTcp / ModbusRtu / MQTT / OPC UA / Socket 等工业设备通信能力"
                 });
