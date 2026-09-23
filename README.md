@@ -118,6 +118,12 @@ dotnet run --project NetworkComponent
 4. **Web 控制台同步**：Socket 客户端页新增“仅发送字符串”“仅发送HEX”“打开/关闭/刷新长连接状态”；HEX 输入说明支持数组或字符串。
 5. **验证**：后端 `dotnet build` 0 错误；Web `npm run build` 通过。
 
+### 2026-09-23 修复 appsettings.json 缺逗号导致配置加载失败（v1.2.1）
+
+1. **问题**：上版发布（v1.2.0）的 `appsettings.json` 中 `SocketClientConfigs` 的示例设备在 `"Encoding": "GBK"` 行后**缺少逗号**就接了 `"UseLongConnection"`，程序启动加载配置时抛 `System.IO.InvalidDataException: Failed to load configuration from file ...appsettings.json`。
+2. **修复**：在 `"Encoding": "GBK"` 行尾补上逗号，恢复合法 JSON（已用 `ConvertFrom-Json` 验证解析通过）。
+3. **发布**：后端打 v1.2.1 tag；父仓库 `repos.json` 将 `NetworkComponent` 指向 `v1.2.1` 后打 v1.2.1 tag，CI 重新打包发布。
+
 ### 2026-09-19 初始化梳理 + 新增 OPCUA/Socket + 工程化接入
 
 1. **README 初版**：梳理现有框架、组件、配置与解决的问题并落档。
