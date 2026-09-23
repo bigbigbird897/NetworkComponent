@@ -7,7 +7,6 @@ using ConnectionSocket;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.OpenApi;
-using NetworkComponent.ArchitectureConfiguration;
 using NetworkComponent.License;
 using Serilog;
 using SqlSugar;

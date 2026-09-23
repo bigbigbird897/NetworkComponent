@@ -131,6 +131,16 @@ dotnet run --project NetworkComponent
 3. **修复**：从 `Common.csproj` 移除 `Microsoft.Web.WebView2` 引用（`Common` 内无任何代码使用 WebView2；WPF 壳项目 `NetworkComponentWPF` 已自带 `Microsoft.Web.WebView2 1.0.2903.40` 引用，不受影响）。
 4. **验证**：`dotnet build NetworkComponent.slnx` **0 错误**；MSB3277 冲突警告已消失（剩余 9 条为 OPC UA 库既有 API 过时 CS0618 警告，与本次无关）。
 
+### 2026-09-23 将 AutofacPropertityRegConfig 迁移到 ArchitectureConfiguration 项目
+
+1. **背景**：控制器属性注入模块 `AutofacPropertityRegConfig.cs` 原位于主项目内嵌套目录 `NetworkComponent/ArchitectureConfiguration/`（namespace `NetworkComponent.ArchitectureConfiguration`），随主项目 Sdk.Web 编译；本次迁移到独立的 `ArchitectureConfiguration` 类库项目。
+2. **迁移改动**：
+   - 文件移至 `ArchitectureConfiguration/AutofacPropertityRegConfig.cs`，命名空间改为 `ArchitectureConfiguration`（与 `AutofacConfig` 一致）。
+   - 原实现 `typeof(Program).Assembly` 改为 `Assembly.GetEntryAssembly()`（类库不能反向引用主项目，会形成循环依赖；入口程序集即主 Web 项目，行为等价）。
+   - `ArchitectureConfiguration.csproj` 增加 `<FrameworkReference Include="Microsoft.AspNetCore.App" />`，以编译期引用 `ControllerBase`（运行时由 ASP.NET Core 主机提供，不打进依赖）。
+   - 删除主项目下旧的 `NetworkComponent/ArchitectureConfiguration/` 目录；`Program.cs` 移除 `using NetworkComponent.ArchitectureConfiguration;`（已有 `using ArchitectureConfiguration;`，`RegisterModule<AutofacPropertityRegConfig>()` 调用不变）。
+3. **验证**：`dotnet build NetworkComponent.slnx` **0 警告 0 错误**；启动冒烟通过（监听 0.0.0.0:5000，MQTT/SocketServer 初始化正常，控制器属性注入模块加载无异常）。
+
 ### 2026-09-19 初始化梳理 + 新增 OPCUA/Socket + 工程化接入
 
 1. **README 初版**：梳理现有框架、组件、配置与解决的问题并落档。

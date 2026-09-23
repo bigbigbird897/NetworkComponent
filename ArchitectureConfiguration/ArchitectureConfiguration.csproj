@@ -7,6 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 需要引用 ASP.NET Core 的 ControllerBase 以支持控制器属性注入；
+         FrameworkReference 仅做框架引用，运行时由主机提供，不会把 MVC 打成依赖 -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Common\Common.csproj" />
   </ItemGroup>
 
