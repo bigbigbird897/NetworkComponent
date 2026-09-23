@@ -124,6 +124,13 @@ dotnet run --project NetworkComponent
 2. **修复**：在 `"Encoding": "GBK"` 行尾补上逗号，恢复合法 JSON（已用 `ConvertFrom-Json` 验证解析通过）。
 3. **发布**：后端打 v1.2.1 tag；父仓库 `repos.json` 将 `NetworkComponent` 指向 `v1.2.1` 后打 v1.2.1 tag，CI 重新打包发布。
 
+### 2026-09-23 修复构建错误：新项目未还原 + WindowsBase 冲突（移除 Common 中的 WebView2）
+
+1. **问题一：找不到资产文件**：新增的 `ModelComponentEnhance`、`ServiceComponentEnhance` 两个项目（Model/Service 分层骨架，均引用 `Common`）从未还原过 NuGet，构建报“找不到 obj/project.assets.json”。已在解决方案级 `dotnet restore NetworkComponent.slnx` 完成还原。
+2. **问题二：WindowsBase 版本冲突（MSB3277）**：`Common.csproj` 误引用了 `Microsoft.Web.WebView2 1.0.4191.47`（WPF 桌面壳才需要的依赖），该包内含 `net5.0-windows` 的 WPF 程序集，经 `Common` 传递到所有后端项目（ConnectionMqtt/ArchitectureConfiguration/NetworkComponent 等），与 .NET 10 的 `WindowsBase 4.0/5.0` 冲突。
+3. **修复**：从 `Common.csproj` 移除 `Microsoft.Web.WebView2` 引用（`Common` 内无任何代码使用 WebView2；WPF 壳项目 `NetworkComponentWPF` 已自带 `Microsoft.Web.WebView2 1.0.2903.40` 引用，不受影响）。
+4. **验证**：`dotnet build NetworkComponent.slnx` **0 错误**；MSB3277 冲突警告已消失（剩余 9 条为 OPC UA 库既有 API 过时 CS0618 警告，与本次无关）。
+
 ### 2026-09-19 初始化梳理 + 新增 OPCUA/Socket + 工程化接入
 
 1. **README 初版**：梳理现有框架、组件、配置与解决的问题并落档。
