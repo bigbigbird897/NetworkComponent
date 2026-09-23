@@ -14,6 +14,7 @@
     <ProjectReference Include="..\ConnectionOPCUA\ConnectionOPCUA.csproj" />
     <ProjectReference Include="..\ConnectionSocket\ConnectionSocket.csproj" />
     <ProjectReference Include="..\ConnectModbusRtuWithTcp\ConnectionModbusRtuWithTcp.csproj" />
+    <ProjectReference Include="..\ServiceComponentEnhance\ServiceComponentEnhance.csproj" />
   </ItemGroup>
 
 </Project>

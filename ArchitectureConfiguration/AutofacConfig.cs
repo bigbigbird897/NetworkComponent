@@ -28,6 +28,15 @@ namespace ArchitectureConfiguration
         };
 
         /// <summary>
+        /// 需要批量注册的增强服务程序集文件名（Service 层：配置/授权/日志/记事本等业务服务）。
+        /// 同样按“接口 -> 实现”以单例方式注册，供控制器属性注入使用。
+        /// </summary>
+        private static readonly string[] EnhanceServiceAssemblyFiles = new[]
+        {
+            "ServiceComponentEnhance.dll"
+        };
+
+        /// <summary>
         /// 重写 Autofac 模块加载方法，所有批量注册逻辑写在此处。
         /// </summary>
         /// <param name="builder">Autofac 容器构建器</param>
@@ -36,21 +45,39 @@ namespace ArchitectureConfiguration
             // 程序运行根目录（与 Web 项目输出目录一致）
             var basePath = AppContext.BaseDirectory;
 
+            // 注册各通信模块：接口 -> 实现，单例，属性注入
             foreach (var dllFile in ConnectionAssemblyFiles)
             {
-                var fullPath = Path.Combine(basePath, dllFile);
-                // 文件不存在时跳过，避免未被主项目引用的模块导致启动异常
-                if (!File.Exists(fullPath))
-                {
-                    continue;
-                }
-
-                var assembly = Assembly.LoadFrom(fullPath);
-                builder.RegisterAssemblyTypes(assembly)
-                       .AsImplementedInterfaces()   // 按实现的接口注册，如 IModbusTcpClient -> ModbusTcpClient
-                       .SingleInstance()            // 通信客户端需长驻，单例复用连接与缓存
-                       .PropertiesAutowired();      // 支持属性自动注入
+                RegisterAssemblyTypes(builder, basePath, dllFile);
             }
+
+            // 注册增强服务（Service 层）：接口 -> 实现，单例，属性注入
+            foreach (var dllFile in EnhanceServiceAssemblyFiles)
+            {
+                RegisterAssemblyTypes(builder, basePath, dllFile);
+            }
+        }
+
+        /// <summary>
+        /// 加载指定程序集并把其中“接口 -> 实现”批量注册到容器（单例 + 属性注入）。
+        /// </summary>
+        /// <param name="builder">Autofac 容器构建器</param>
+        /// <param name="basePath">程序运行根目录</param>
+        /// <param name="dllFile">待注册的程序集文件名（含 .dll）</param>
+        private static void RegisterAssemblyTypes(ContainerBuilder builder, string basePath, string dllFile)
+        {
+            var fullPath = Path.Combine(basePath, dllFile);
+            // 文件不存在时跳过，避免未被主项目引用的模块导致启动异常
+            if (!File.Exists(fullPath))
+            {
+                return;
+            }
+
+            var assembly = Assembly.LoadFrom(fullPath);
+            builder.RegisterAssemblyTypes(assembly)
+                   .AsImplementedInterfaces()   // 按实现的接口注册，如 IModbusTcpClient -> ModbusTcpClient
+                   .SingleInstance()            // 通信客户端/业务服务需长驻，单例复用连接与缓存
+                   .PropertiesAutowired();      // 支持属性自动注入
         }
     }
 }
