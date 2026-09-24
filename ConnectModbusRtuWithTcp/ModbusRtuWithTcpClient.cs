@@ -109,9 +109,47 @@ namespace ConnectionModbusRtuWithTcp
             reqBody.AddRange(crc);
 
             var resp = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
+
+            // 1) 超时/无响应：长连接模式下超时已抛异常；这里兜底判断报文长度
+            //    正常 06 响应共 8 字节（从站1+功能码1+地址2+值2+CRC2），异常响应共 5 字节（从站1+功能码1+异常码1+CRC2）
+            if (resp == null || resp.Length < 5)
+                throw new IOException($"Modbus[{deviceCode}] 写单寄存器无响应或响应报文过短（长度={resp?.Length ?? 0}）");
+
+            // 2) CRC 校验
+            if (!ModbusCrcHelper.CheckCrc(resp, resp.Length))
+                throw new IOException($"Modbus[{deviceCode}] 写单寄存器响应CRC校验失败：{BitConverter.ToString(resp)}");
+
+            // 3) 异常响应（功能码最高位为1 = 0x86）
+            byte respFunc = resp[1];
+            if ((respFunc & 0x80) != 0)
+            {
+                byte errCode = resp[2];
+                throw new Exception($"Modbus[{deviceCode}] 写单寄存器被从站拒绝：{DescribeModbusException(errCode)}");
+            }
+
+            // 4) 正常响应：校验长度 + 回显地址/值与请求一致
+            if (resp.Length < 8)
+                throw new IOException($"Modbus[{deviceCode}] 写单寄存器正常响应长度不足（期望8字节，实际{resp.Length}）");
             if (!resp.Take(6).SequenceEqual(reqBody.Take(6)))
-                throw new Exception($"设备{deviceCode}单寄存器写入返回报文不匹配");
+                throw new Exception($"Modbus[{deviceCode}] 写单寄存器回显报文不匹配：请求 {BitConverter.ToString(reqBody.Take(6).ToArray())}，响应 {BitConverter.ToString(resp.Take(6).ToArray())}");
         }
+
+        /// <summary>
+        /// 将 Modbus 标准异常码翻译为可读文字。
+        /// </summary>
+        private static string DescribeModbusException(byte errCode) => errCode switch
+        {
+            0x01 => "非法功能码（从站不支持该操作）",
+            0x02 => "非法数据地址（寄存器地址超出从站范围）",
+            0x03 => "非法数据值（写入数值格式/范围不被接受）",
+            0x04 => "从站设备故障（无法响应）",
+            0x05 => "确认（从站已接收请求，但需要较长处理时间）",
+            0x06 => "从站忙（请稍后重试）",
+            0x08 => "存储奇偶差错（消息校验错误）",
+            0x0A => "网关路径不可用",
+            0x0B => "网关目标设备无响应",
+            _ => $"未知异常码 0x{errCode:X2}"
+        };
 
         public async Task WriteMultiRegistersAsync(string deviceCode, ushort startAddr, ushort[] values)
         {
