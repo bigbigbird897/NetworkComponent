@@ -1,4 +1,4 @@
-﻿using Common.GlobalHelper;
+using Common.GlobalHelper;
 using Common.LocalEntity;
 using ConnectionMqtt;
 using Microsoft.AspNetCore.Authorization;
@@ -107,33 +107,12 @@ namespace NetworkComponent.Controllers
             {
                 IsSuccess = result.IsSuccess,
                 IsTimeout = result.IsTimeout,
-                // 应答可能是 JSON（解析为 JObject 便于前端展示），也可能是纯文本（原样返回）
-                ResponsePayload = ResolvePayload(result.ResponsePayload)
+                // 直接返回原始字符串：System.Text.Json 无法正确序列化 Newtonsoft 的 JObject
+                //（会把 JToken 枚举成空数组），由前端自行判断是否 JSON 并格式化展示
+                ResponsePayload = string.IsNullOrEmpty(result.ResponsePayload) ? null : result.ResponsePayload
             };
 
             return ApiReturnHelper.Success(output);
-        }
-
-        /// <summary>
-        /// 应答报文兼容解析：JSON 字符串解析为 JObject，非 JSON（纯文本/二进制转文本）原样返回字符串
-        /// </summary>
-        /// <param name="payload">应答原始内容</param>
-        /// <returns>JObject 或 原始字符串，空则为 null</returns>
-        private static object? ResolvePayload(string? payload)
-        {
-            if (string.IsNullOrEmpty(payload))
-            {
-                return null;
-            }
-            try
-            {
-                return JObject.Parse(payload);
-            }
-            catch (Newtonsoft.Json.JsonException)
-            {
-                // 非 JSON 应答（如普通文本），保持原样返回，避免解析异常导致接口 500
-                return payload;
-            }
         }
 
 
@@ -198,7 +177,7 @@ namespace NetworkComponent.Controllers
         public bool IsTimeout { get; set; }
 
         /// <summary>应答内容：JSON 时为 JObject，非 JSON 时为原始文本，超时场景下为 null</summary>
-        public object? ResponsePayload { get; set; }
+        public string? ResponsePayload { get; set; }
     }
 
     #endregion
