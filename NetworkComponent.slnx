@@ -1,10 +1,16 @@
 <Solution>
-  <Folder Name="/Connection/">
+  <Folder Name="/Connections/">
     <Project Path="ConnectionModbusTcp/ConnectionModbusTcp.csproj" />
     <Project Path="ConnectionMqtt/ConnectionMqtt.csproj" />
     <Project Path="ConnectionOPCUA/ConnectionOPCUA.csproj" Id="5c440d40-cb32-44f1-8650-54e2a12eec32" />
     <Project Path="ConnectionSocket/ConnectionSocket.csproj" Id="c73c9629-aad5-4db9-b4fe-511121c8d082" />
     <Project Path="ConnectModbusRtuWithTcp/ConnectionModbusRtuWithTcp.csproj" />
+  </Folder>
+  <Folder Name="/Models/">
+    <Project Path="ModelComponentEnhance/ModelComponentEnhance.csproj" Id="4023e91d-d4fb-482c-9fd0-f52352fba849" />
+  </Folder>
+  <Folder Name="/Services/">
+    <Project Path="ServiceComponentEnhance/ServiceComponentEnhance.csproj" Id="9c4f29c6-9381-40cd-a857-726685d52948" />
   </Folder>
   <Project Path="ArchitectureConfiguration/ArchitectureConfiguration.csproj" Id="c892ec05-62fa-4a2a-807d-b7aeea992f6f" />
   <Project Path="Common/Common.csproj" Id="662f917d-895d-4a9c-b94f-32ccd2332175" />

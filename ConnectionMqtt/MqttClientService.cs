@@ -164,6 +164,9 @@ namespace ConnectionMqtt
         /// 现调用前自动订阅 topicReply（幂等，重复订阅安全），等待结束后保持订阅，
         /// 以便“答复主题消息”能被持续记录并通过 GetReceivedMessagesAsync 展示。
         /// 注意：应答方必须是另一个 MQTT 客户端/工具（同客户端自发自收，标准 broker 不会回投）。
+        /// 
+        /// 可以提前为当前连接的mqtt服务端订阅主题，这样就不用在这里再次订阅主题了；另外可以看一下对当前连接的mqtt服务端有没有订阅这个主题，如果没有则订阅
+        /// 如果有则忽略。
         /// </summary>
         public async Task<(bool IsSuccess, string? ResponsePayload, bool IsTimeout)> PublishAndWaitReplyAsync(
             string clientId,
@@ -184,11 +187,11 @@ namespace ConnectionMqtt
             }
 
             // 关键修复：先订阅答复主题，否则 broker 不会投递该主题的任何消息
-            if (!string.IsNullOrWhiteSpace(topicReply))
-            {
-                await client.SubscribeAsync(topicReply, MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
-                _logger.LogInformation("MQTT[{ClientId}] PublishAndWaitReplyAsync 已自动订阅答复主题:{ReplyTopic}", clientId, topicReply);
-            }
+            //if (!string.IsNullOrWhiteSpace(topicReply))
+            //{
+            //    await client.SubscribeAsync(topicReply, MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+            //    _logger.LogInformation("MQTT[{ClientId}] PublishAndWaitReplyAsync 已自动订阅答复主题:{ReplyTopic}", clientId, topicReply);
+            //}
 
             var tcs = new TaskCompletionSource<string?>();
             // cts用于超时取消
