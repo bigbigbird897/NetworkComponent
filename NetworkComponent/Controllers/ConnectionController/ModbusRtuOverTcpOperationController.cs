@@ -127,5 +127,25 @@ namespace NetworkComponent.Controllers
         {
             return ApiReturnHelper.Success(_modbusClient.GetAllDeviceCodes());
         }
+
+        /// <summary>
+        /// 【关闭指定设备长连接】下次读写时会自动重建连接。
+        /// </summary>
+        [HttpPost]
+        public async Task<ApiUnifiedReturnStructure<object>> CloseLongConnection(string deviceCode)
+        {
+            await _modbusClient.CloseConnectionAsync(deviceCode);
+            return ApiReturnHelper.Success(null, "长连接已关闭");
+        }
+
+        /// <summary>
+        /// 【查询指定设备长连接状态】true=已建立，false=未连接/已断开。
+        /// </summary>
+        [HttpGet]
+        public ApiUnifiedReturnStructure<object> GetLongConnectionStatus(string deviceCode)
+        {
+            object status = new { deviceCode, connected = _modbusClient.IsConnected(deviceCode) };
+            return ApiReturnHelper.Success(status);
+        }
     }
 }

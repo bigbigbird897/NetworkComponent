@@ -13,11 +13,18 @@ namespace ConnectionModbusRtuWithTcp
     /// Modbus RTU over TCP 客户端实现。
     /// 自 appsettings.json 的 "ModbusRtuWithTcpConfigs" 节读取多设备配置；
     /// 在 TCP 链路上收发标准 RTU 报文（含 CRC16 校验）。
+    /// 长连接模式：每个 deviceCode 复用一条 TCP 连接，事务间用信号量串行化；
+    /// 超时/异常时自动丢弃旧连接并重建。
     /// </summary>
     public class ModbusRtuWithTcpClient : IModbusRtuWithTcpClient
     {
         private readonly ILogger<ModbusRtuWithTcpClient> _logger;
         private readonly ConcurrentDictionary<string, ModbusRtuWithTcpClientConfig> _deviceDict = new();
+
+        /// <summary>
+        /// 长连接缓存：key=deviceCode。socket 为复用连接，gate 串行化同设备的 Modbus 事务。
+        /// </summary>
+        private readonly ConcurrentDictionary<string, (Socket socket, SemaphoreSlim gate)> _longConnDict = new();
 
         /// <summary>
         /// 构造函数：由 Autofac 注入配置与日志，启动时加载全部 Modbus RTU 设备配置。
@@ -306,7 +313,7 @@ namespace ConnectionModbusRtuWithTcp
                     deviceCode, BitConverter.ToString(rtuBytes));
 
                 var response = await InnerTcpSendAsync(
-                    cfg.IpAddress, cfg.Port, rtuBytes, cfg.WaitResponse, cfg.TimeoutMs);
+                    deviceCode, cfg.IpAddress, cfg.Port, rtuBytes, cfg.WaitResponse, cfg.TimeoutMs);
 
                 _logger.LogDebug("Modbus[{DeviceCode}] 设备返回报文: {Hex}",
                     deviceCode, BitConverter.ToString(response));
@@ -319,58 +326,138 @@ namespace ConnectionModbusRtuWithTcp
                 throw;
             }
         }
+
+        /// <summary>
+        /// 显式关闭指定设备的长连接（下次发送时自动重建）。
+        /// </summary>
+        public Task CloseConnectionAsync(string deviceCode)
+        {
+            if (_longConnDict.TryRemove(deviceCode, out var entry))
+            {
+                TryCloseSocket(entry.socket);
+                entry.gate.Dispose();
+                _logger.LogInformation("Modbus[{DeviceCode}] 长连接已显式关闭", deviceCode);
+            }
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 查询指定设备长连接是否处于已建立状态。
+        /// </summary>
+        public bool IsConnected(string deviceCode)
+        {
+            return _longConnDict.TryGetValue(deviceCode, out var entry)
+                && entry.socket.Connected
+                && !entry.socket.Poll(1000, SelectMode.SelectRead);
+        }
         #endregion
 
-        #region 内置私有TCP收发
-        private async Task<byte[]> InnerTcpSendAsync(string serverIp, int port, byte[] sendData, bool waitResponse = true, int timeoutMs = 1000)
+        #region 内置私有TCP收发（长连接复用）
+
+        /// <summary>
+        /// 获取设备的长连接入口（信号量 + socket），不存在则新建。
+        /// </summary>
+        private (Socket socket, SemaphoreSlim gate) GetOrCreateEntry(string deviceCode)
         {
-            CancellationTokenSource tokenSource = new();
-            List<byte> recvDatas = new List<byte>();
-            var pool = ArrayPool<byte>.Shared;
-            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            return _longConnDict.GetOrAdd(deviceCode, _ =>
+                (new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp),
+                 new SemaphoreSlim(1, 1)));
+        }
 
+        /// <summary>
+        /// 丢弃指定设备的失效连接（异常/超时后调用，下次自动重连）。
+        /// </summary>
+        private void DropConnection(string deviceCode)
+        {
+            if (_longConnDict.TryRemove(deviceCode, out var entry))
+            {
+                TryCloseSocket(entry.socket);
+                entry.gate.Dispose();
+            }
+        }
+
+        private static void TryCloseSocket(Socket? socket)
+        {
             try
-            {
-                IPAddress ipAddress = IPAddress.Parse(serverIp);
-                IPEndPoint serverEp = new IPEndPoint(ipAddress, port);
-                await socket.ConnectAsync(serverEp).ConfigureAwait(false);
-                await socket.SendAsync(sendData, SocketFlags.None, tokenSource.Token).ConfigureAwait(false);
-
-                if (waitResponse)
-                {
-                    byte[] buffer = pool.Rent(1024);
-                    Task delayTask = Task.Delay(timeoutMs, tokenSource.Token);
-                    Task recvTask = Task.Run(async () =>
-                    {
-                        int readLen = await socket.ReceiveAsync(buffer, SocketFlags.None, tokenSource.Token).ConfigureAwait(false);
-                        recvDatas.AddRange(buffer.Take(readLen));
-                    }, tokenSource.Token);
-
-                    await Task.WhenAny(delayTask, recvTask);
-                    if (delayTask.IsCompleted)
-                    {
-                        tokenSource.Cancel();
-                        _logger.LogWarning("TCP通信超时 Ip:{Ip}:{Port},Timeout:{Timeout}ms", serverIp, port, timeoutMs);
-                    }
-                    pool.Return(buffer);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "InnerTcpSendAsync 异常 Ip:{Ip}:{Port}", serverIp, port);
-            }
-            finally
             {
                 if (socket != null && socket.Connected)
                 {
                     socket.Shutdown(SocketShutdown.Both);
-                    socket.Close();
                 }
+                socket?.Close();
                 socket?.Dispose();
-                tokenSource.Dispose();
             }
+            catch { /* 关闭失败忽略 */ }
+        }
 
-            return recvDatas.ToArray();
+        /// <summary>
+        /// 长连接模式收发：同一 deviceCode 复用一条 TCP 连接，事务间串行化；
+        /// 异常/超时自动丢弃连接，下次调用重建。
+        /// </summary>
+        private async Task<byte[]> InnerTcpSendAsync(string deviceCode, string serverIp, int port, byte[] sendData, bool waitResponse = true, int timeoutMs = 1000)
+        {
+            var entry = GetOrCreateEntry(deviceCode);
+            await entry.gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                // 连接失效则重建
+                if (!entry.socket.Connected)
+                {
+                    _logger.LogInformation("Modbus[{DeviceCode}] 建立长连接 {Ip}:{Port}", deviceCode, serverIp, port);
+                    var newSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    IPEndPoint serverEp = new IPEndPoint(IPAddress.Parse(serverIp), port);
+                    await newSocket.ConnectAsync(serverEp).ConfigureAwait(false);
+                    // 替换缓存中的 socket（entry 是值元组，直接改字典）
+                    _longConnDict[deviceCode] = (newSocket, entry.gate);
+                    entry.socket = newSocket;
+                }
+
+                using var cts = new CancellationTokenSource(timeoutMs);
+                List<byte> recvDatas = new List<byte>();
+                var pool = ArrayPool<byte>.Shared;
+
+                await entry.socket.SendAsync(sendData, SocketFlags.None, cts.Token).ConfigureAwait(false);
+
+                if (waitResponse)
+                {
+                    byte[] buffer = pool.Rent(1024);
+                    try
+                    {
+                        Task delayTask = Task.Delay(timeoutMs, cts.Token);
+                        Task recvTask = Task.Run(async () =>
+                        {
+                            int readLen = await entry.socket.ReceiveAsync(buffer, SocketFlags.None, cts.Token).ConfigureAwait(false);
+                            recvDatas.AddRange(buffer.Take(readLen));
+                        }, cts.Token);
+
+                        await Task.WhenAny(delayTask, recvTask).ConfigureAwait(false);
+                        if (delayTask.IsCompleted && !recvTask.IsCompleted)
+                        {
+                            _logger.LogWarning("Modbus[{DeviceCode}] 通信超时 Timeout:{Timeout}ms，丢弃连接等待重连", deviceCode, timeoutMs);
+                            // 超时：残留数据可能污染下一帧，直接丢弃整个连接
+                            DropConnection(deviceCode);
+                            throw new TimeoutException($"Modbus[{deviceCode}] 等待响应超时 {timeoutMs}ms");
+                        }
+                    }
+                    finally
+                    {
+                        pool.Return(buffer);
+                    }
+                }
+
+                return recvDatas.ToArray();
+            }
+            catch (Exception ex)
+            {
+                // 任何异常都认为连接不可靠，丢弃重建
+                _logger.LogWarning(ex, "Modbus[{DeviceCode}] 收发异常，丢弃长连接", deviceCode);
+                DropConnection(deviceCode);
+                throw;
+            }
+            finally
+            {
+                entry.gate.Release();
+            }
         }
         #endregion
     }

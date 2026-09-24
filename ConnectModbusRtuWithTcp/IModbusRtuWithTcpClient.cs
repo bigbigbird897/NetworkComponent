@@ -93,6 +93,15 @@ namespace ConnectionModbusRtuWithTcp
         /// <returns>设备返回原始字节</returns>
         Task<byte[]> SendRawRtuPacketAsync(string deviceCode, byte[] rtuBytes);
 
+        /// <summary>
+        /// 显式关闭指定设备的长连接（下次发送时自动重建）。
+        /// </summary>
+        Task CloseConnectionAsync(string deviceCode);
+
+        /// <summary>
+        /// 查询指定设备长连接是否已建立。
+        /// </summary>
+        bool IsConnected(string deviceCode);
 
         List<string> GetAllDeviceCodes();
     }
