@@ -1,4 +1,4 @@
-﻿using ConnectionModbusRtuWithTcp.LocalEntity;
+using ConnectionModbusRtuWithTcp.LocalEntity;
 using ConnectionModbusRtuWithTcp.LocalHelper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -72,17 +72,12 @@ namespace ConnectionModbusRtuWithTcp
             reqBody.AddRange(crc);
 
             var respBytes = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
-
-            if (!ModbusCrcHelper.CheckCrc(respBytes, respBytes.Length))
-                throw new Exception($"设备{deviceCode}返回报文CRC校验失败");
-
-            if ((respBytes[1] & 0x80) != 0)
-            {
-                byte errCode = respBytes[2];
-                throw new Exception($"Modbus设备{deviceCode}异常，异常码:{errCode}");
-            }
+            ValidateRtuResponse(deviceCode, "读保持寄存器", respBytes, 0x03);
 
             int dataLen = respBytes[2];
+            if (dataLen <= 0 || dataLen % 2 != 0 || respBytes.Length < 3 + dataLen)
+                throw new IOException($"Modbus[{deviceCode}] 读保持寄存器：数据长度非法（dataLen={dataLen}，响应{respBytes.Length}字节）");
+
             ushort[] result = new ushort[dataLen / 2];
             for (int i = 0; i < result.Length; i++)
             {
@@ -110,28 +105,12 @@ namespace ConnectionModbusRtuWithTcp
 
             var resp = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
 
-            // 1) 超时/无响应：长连接模式下超时已抛异常；这里兜底判断报文长度
-            //    正常 06 响应共 8 字节（从站1+功能码1+地址2+值2+CRC2），异常响应共 5 字节（从站1+功能码1+异常码1+CRC2）
-            if (resp == null || resp.Length < 5)
-                throw new IOException($"Modbus[{deviceCode}] 写单寄存器无响应或响应报文过短（长度={resp?.Length ?? 0}）");
-
-            // 2) CRC 校验
-            if (!ModbusCrcHelper.CheckCrc(resp, resp.Length))
-                throw new IOException($"Modbus[{deviceCode}] 写单寄存器响应CRC校验失败：{BitConverter.ToString(resp)}");
-
-            // 3) 异常响应（功能码最高位为1 = 0x86）
-            byte respFunc = resp[1];
-            if ((respFunc & 0x80) != 0)
-            {
-                byte errCode = resp[2];
-                throw new Exception($"Modbus[{deviceCode}] 写单寄存器被从站拒绝：{DescribeModbusException(errCode)}");
-            }
-
-            // 4) 正常响应：校验长度 + 回显地址/值与请求一致
+            // 0x06 正常响应 8 字节回显整个请求
+            ValidateRtuResponse(deviceCode, "写单寄存器", resp, 0x06);
             if (resp.Length < 8)
-                throw new IOException($"Modbus[{deviceCode}] 写单寄存器正常响应长度不足（期望8字节，实际{resp.Length}）");
-            if (!resp.Take(6).SequenceEqual(reqBody.Take(6)))
-                throw new Exception($"Modbus[{deviceCode}] 写单寄存器回显报文不匹配：请求 {BitConverter.ToString(reqBody.Take(6).ToArray())}，响应 {BitConverter.ToString(resp.Take(6).ToArray())}");
+                throw new IOException($"Modbus[{deviceCode}] 写单寄存器：响应长度不足（期望8字节，实际{resp.Length}）");
+            if (!resp.Take(8).SequenceEqual(reqBody.Take(8)))
+                throw new Exception($"Modbus[{deviceCode}] 写单寄存器回显不匹配：请求 {BitConverter.ToString(reqBody.Take(8).ToArray())}，响应 {BitConverter.ToString(resp.Take(8).ToArray())}");
         }
 
         /// <summary>
@@ -150,6 +129,25 @@ namespace ConnectionModbusRtuWithTcp
             0x0B => "网关目标设备无响应",
             _ => $"未知异常码 0x{errCode:X2}"
         };
+
+        /// <summary>
+        /// 公共响应校验：长度、CRC、Modbus异常响应、功能码匹配。
+        /// </summary>
+        /// <param name="deviceCode">设备编码</param>
+        /// <param name="action">操作描述（用于错误信息）</param>
+        /// <param name="resp">响应字节</param>
+        /// <param name="expectedFunc">期望的功能码（异常响应会置最高位）</param>
+        private static void ValidateRtuResponse(string deviceCode, string action, byte[] resp, byte expectedFunc)
+        {
+            if (resp == null || resp.Length < 5)
+                throw new IOException($"Modbus[{deviceCode}] {action}：无响应或报文过短（长度={resp?.Length ?? 0}）");
+            if (!ModbusCrcHelper.CheckCrc(resp, resp.Length))
+                throw new IOException($"Modbus[{deviceCode}] {action}：CRC校验失败：{BitConverter.ToString(resp)}");
+            if ((resp[1] & 0x80) != 0)
+                throw new Exception($"Modbus[{deviceCode}] {action}被从站拒绝：{DescribeModbusException(resp[2])}");
+            if (resp[1] != expectedFunc)
+                throw new IOException($"Modbus[{deviceCode}] {action}：功能码不匹配（期望 0x{expectedFunc:X2}，实际 0x{resp[1]:X2}）");
+        }
 
         public async Task WriteMultiRegistersAsync(string deviceCode, ushort startAddr, ushort[] values)
         {
@@ -172,7 +170,16 @@ namespace ConnectionModbusRtuWithTcp
             var crc = ModbusCrcHelper.CalcCrc(reqBody.ToArray());
             reqBody.AddRange(crc);
 
-            await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
+            var resp = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
+            // 0x10 正常响应 8 字节：从站1+功能码1+起始地址2+写入数量2+CRC2
+            ValidateRtuResponse(deviceCode, "批量写寄存器", resp, 0x10);
+            if (resp.Length < 8)
+                throw new IOException($"Modbus[{deviceCode}] 批量写寄存器：响应长度不足（期望8字节，实际{resp.Length}）");
+            // 校验回显的起始地址与数量
+            ushort respStart = (ushort)(resp[2] << 8 | resp[3]);
+            ushort respQty = (ushort)(resp[4] << 8 | resp[5]);
+            if (respStart != startAddr || respQty != values.Length)
+                throw new Exception($"Modbus[{deviceCode}] 批量写寄存器：回显不匹配（请求 起始{startAddr}/数量{values.Length}，响应 起始{respStart}/数量{respQty}）");
         }
 
         /// <summary>
@@ -219,8 +226,12 @@ namespace ConnectionModbusRtuWithTcp
             reqBody.AddRange(crc);
 
             var resp = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
+            // 0x05 正常响应 8 字节回显整个请求
+            ValidateRtuResponse(deviceCode, "写单线圈", resp, 0x05);
+            if (resp.Length < 8)
+                throw new IOException($"Modbus[{deviceCode}] 写单线圈：响应长度不足（期望8字节，实际{resp.Length}）");
             if (!resp.Take(8).SequenceEqual(reqBody.Take(8)))
-                throw new Exception($"设备{deviceCode}写单线圈返回报文不匹配");
+                throw new Exception($"Modbus[{deviceCode}] 写单线圈回显不匹配：请求 {BitConverter.ToString(reqBody.Take(8).ToArray())}，响应 {BitConverter.ToString(resp.Take(8).ToArray())}");
         }
 
         /// <summary>
@@ -255,7 +266,15 @@ namespace ConnectionModbusRtuWithTcp
             var crc = ModbusCrcHelper.CalcCrc(reqBody.ToArray());
             reqBody.AddRange(crc);
 
-            await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
+            var resp = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
+            // 0x0F 正常响应 8 字节：从站1+功能码1+起始地址2+写入数量2+CRC2
+            ValidateRtuResponse(deviceCode, "批量写线圈", resp, 0x0F);
+            if (resp.Length < 8)
+                throw new IOException($"Modbus[{deviceCode}] 批量写线圈：响应长度不足（期望8字节，实际{resp.Length}）");
+            ushort respStart = (ushort)(resp[2] << 8 | resp[3]);
+            ushort respQty = (ushort)(resp[4] << 8 | resp[5]);
+            if (respStart != startAddr || respQty != quantity)
+                throw new Exception($"Modbus[{deviceCode}] 批量写线圈：回显不匹配（请求 起始{startAddr}/数量{quantity}，响应 起始{respStart}/数量{respQty}）");
         }
 
         /// <summary>
@@ -277,16 +296,11 @@ namespace ConnectionModbusRtuWithTcp
             reqBody.AddRange(crc);
 
             var respBytes = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
-
-            if (!ModbusCrcHelper.CheckCrc(respBytes, respBytes.Length))
-                throw new Exception($"设备{deviceCode}返回报文CRC校验失败");
-
-            if ((respBytes[1] & 0x80) != 0)
-                throw new Exception($"Modbus设备{deviceCode}异常，异常码:{respBytes[2]}");
+            ValidateRtuResponse(deviceCode, "读位状态(0x" + funcCode.ToString("X2") + ")", respBytes, funcCode);
 
             int dataLen = respBytes[2];
-            if (respBytes.Length < 3 + dataLen)
-                throw new Exception($"设备{deviceCode}应答报文截断");
+            if (dataLen <= 0 || respBytes.Length < 3 + dataLen)
+                throw new IOException($"Modbus[{deviceCode}] 读位状态：数据长度非法（dataLen={dataLen}，响应{respBytes.Length}字节）");
 
             // 位数据从 resp[3] 开始，每字节低位在前解包为 bool[count]
             bool[] result = new bool[count];
@@ -319,18 +333,11 @@ namespace ConnectionModbusRtuWithTcp
             reqBody.AddRange(crc);
 
             var respBytes = await SendRawRtuPacketAsync(deviceCode, reqBody.ToArray());
-
-            if (!ModbusCrcHelper.CheckCrc(respBytes, respBytes.Length))
-                throw new Exception($"设备{deviceCode}返回报文CRC校验失败");
-
-            if ((respBytes[1] & 0x80) != 0)
-                throw new Exception($"Modbus设备{deviceCode}异常，异常码:{respBytes[2]}");
+            ValidateRtuResponse(deviceCode, "读寄存器(0x" + funcCode.ToString("X2") + ")", respBytes, funcCode);
 
             int dataLen = respBytes[2];
-            if (dataLen <= 0 || dataLen % 2 != 0)
-                throw new Exception($"设备{deviceCode}返回寄存器数据字节长度非法，dataLen={dataLen}");
-            if (respBytes.Length < 3 + dataLen)
-                throw new Exception($"设备{deviceCode}应答报文截断");
+            if (dataLen <= 0 || dataLen % 2 != 0 || respBytes.Length < 3 + dataLen)
+                throw new IOException($"Modbus[{deviceCode}] 读寄存器：数据长度非法（dataLen={dataLen}，响应{respBytes.Length}字节）");
 
             ushort[] result = new ushort[dataLen / 2];
             for (int i = 0; i < result.Length; i++)
