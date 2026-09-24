@@ -86,5 +86,14 @@ namespace ConnectionMqtt
         /// Http接口托管式取消订阅，自动查找并移除内部保存的handler
         /// </summary>
         Task UnSubscribeManagedAsync(string clientId, string topic);
+
+        /// <summary>
+        /// 获取指定客户端 + 主题在托管订阅期间最近收到的消息列表（新的在前）。
+        /// 需要先通过 SubscribeManagedAsync 订阅，消息由服务内部记录。
+        /// </summary>
+        /// <param name="clientId">MQTT客户端Id</param>
+        /// <param name="topic">订阅主题</param>
+        /// <returns>收到的消息列表（可能为空）</returns>
+        Task<List<ReceivedMqttMessage>> GetReceivedMessagesAsync(string clientId, string topic);
     }
 }

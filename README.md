@@ -158,6 +158,19 @@ dotnet run --project NetworkComponent
 5. **主项目 csproj**：新增 `ProjectReference` 引用 ServiceComponentEnhance（保证 dll 随输出拷贝，供 `Assembly.LoadFrom` 加载）。
 6. **验证**：`dotnet build NetworkComponent.slnx` **0 警告 0 错误**；启动冒烟：`License/GetMachineCode`、`Config/Get`、`Notes/GetList`、`Log/GetList` 均 HTTP 200 正常返回，属性注入生效。
 
+
+### 2026-09-24 MQTT 托管订阅消息展示 + 修复 PublishAndWaitReply 收不到应答
+
+1. **需求背景**：①托管订阅主题后需要 UI 展示该主题收到的消息；②`PublishAndWaitReply` 实测收不到应答（发送消息后应答主题无响应）；③需要 UI 展示其他客户端向应答主题发送的消息。
+2. **根因排查（问题②）**：`PublishAndWaitReplyAsync` 原实现**只注册了本地回调、从未向 broker 订阅 `topicReply`**——MQTT broker 只把消息推送给已订阅该主题的客户端，所以应答主题的消息永远不会被投递，必然超时；此外，若用**同一个客户端**往应答主题自己发消息，标准 broker 不会回投给发布者自己，应答方必须是另一客户端/外部工具。
+3. **ConnectionMqtt 改动**：
+   - 新增 `LocalEntity/ReceivedMqttMessage.cs`：`Topic / Payload / ReceiveTime` 消息记录实体。
+   - `IMqttClientService` 新增 `GetReceivedMessagesAsync(clientId, topic)` 接口。
+   - `MqttClientService`：新增内存缓冲 `_receivedMessagesDict`（key=`clientId||topic`，环形队列保留最近 200 条）；`SubscribeManagedAsync` 的 handler 收到消息时**记录进缓冲 + 打印日志**；`UnSubscribeManagedAsync` 退订时同步清空该主题缓冲；`GetReceivedMessagesAsync` 返回缓冲列表（新的在前）；**`PublishAndWaitReplyAsync` 修复**：调用前自动 `SubscribeAsync(topicReply)`（幂等），等待结束后**保持订阅**以便应答主题消息继续被记录展示。
+4. **Controller 新增接口**：`MqttOperationController.GetReceivedMessages(clientId, topic)`（GET），返回 `List<ReceivedMqttMessage>`。
+5. **应答兼容修复**：`MqttWaitReplyResult.ResponsePayload` 由 `JObject?` 改为 `object?`；新增 `ResolvePayload` 容错解析——应答是 JSON 则解析为 JObject，非 JSON（纯文本）原样返回字符串，**修复了纯文本应答导致 `JObject.Parse` 抛异常接口 500 的问题**。
+6. **验证（冒烟实测）**：`SubTopic` 托管订阅 `test/reply` → 外部 MQTT 客户端发布 `最终验证-外部发布` → `GetReceivedMessages` 返回该消息；`PublishAndWaitReply`（topicReply=test/reply）等待期间外部客户端发布 `OK-应答成功` → 返回 `isSuccess=true, isTimeout=false, responsePayload="OK-应答成功"`。`dotnet build NetworkComponent.slnx` **0 警告 0 错误**。
+7. **前端配套**：NetworkComponentWeb `Console.vue` MQTT 区块新增"订阅主题消息"与"应答主题消息"两块卡片（2 秒轮询），见 Web 仓库 README 对应记录。
 ### 2026-09-19 初始化梳理 + 新增 OPCUA/Socket + 工程化接入
 
 1. **README 初版**：梳理现有框架、组件、配置与解决的问题并落档。

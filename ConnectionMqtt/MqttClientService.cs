@@ -13,6 +13,10 @@ namespace ConnectionMqtt
         // 托管http接口的订阅关系 key=clientId||topic
         private readonly ConcurrentDictionary<string, (string ClientId, string Topic, Func<MqttApplicationMessageReceivedEventArgs, Task> Handler)> _managedSubscribeDict = new();
 
+        // 托管订阅收到的消息缓冲 key=clientId||topic，保留最近 MaxBufferedMessages 条（供 Web 控制台轮询展示）
+        private readonly ConcurrentDictionary<string, ConcurrentQueue<ReceivedMqttMessage>> _receivedMessagesDict = new();
+        private const int MaxBufferedMessages = 200;
+
         private readonly IConfiguration _config;
         private readonly ILogger<MqttClientService> _logger;
         // 缓存所有MQTT客户端：ClientId -> IMqttClient
@@ -155,7 +159,11 @@ namespace ConnectionMqtt
 
 
         /// <summary>
-        /// 发布消息，等待指定主题返回响应，带超时
+        /// 发布消息，等待指定主题返回响应，带超时。
+        /// ⚠️ 修复说明：原实现只注册了本地回调、未订阅 topicReply，broker 不会投递该主题消息导致必然超时；
+        /// 现调用前自动订阅 topicReply（幂等，重复订阅安全），等待结束后保持订阅，
+        /// 以便“答复主题消息”能被持续记录并通过 GetReceivedMessagesAsync 展示。
+        /// 注意：应答方必须是另一个 MQTT 客户端/工具（同客户端自发自收，标准 broker 不会回投）。
         /// </summary>
         public async Task<(bool IsSuccess, string? ResponsePayload, bool IsTimeout)> PublishAndWaitReplyAsync(
             string clientId,
@@ -173,6 +181,13 @@ namespace ConnectionMqtt
                 {
                     return (false, null, false);
                 }
+            }
+
+            // 关键修复：先订阅答复主题，否则 broker 不会投递该主题的任何消息
+            if (!string.IsNullOrWhiteSpace(topicReply))
+            {
+                await client.SubscribeAsync(topicReply, MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce);
+                _logger.LogInformation("MQTT[{ClientId}] PublishAndWaitReplyAsync 已自动订阅答复主题:{ReplyTopic}", clientId, topicReply);
             }
 
             var tcs = new TaskCompletionSource<string?>();
@@ -308,7 +323,7 @@ namespace ConnectionMqtt
         }
 
         /// <summary>
-        /// Http接口托管式订阅，消息仅打印日志
+        /// Http接口托管式订阅：收到的消息记录到内存缓冲（供 Web 控制台轮询展示），同时打印日志
         /// </summary>
         public async Task SubscribeManagedAsync(string clientId, string topic)
         {
@@ -321,14 +336,25 @@ namespace ConnectionMqtt
                 return;
             }
 
-            // 定义handler
-            Func<MqttApplicationMessageReceivedEventArgs, Task> handler = async args =>
+            // 定义handler：记录消息到缓冲 + 打印日志
+            Func<MqttApplicationMessageReceivedEventArgs, Task> handler = args =>
             {
                 var payloadBytes = args.ApplicationMessage.PayloadSegment;
                 string payload = System.Text.Encoding.UTF8.GetString(payloadBytes.AsSpan());
                 string t = args.ApplicationMessage.Topic;
                 _logger.LogInformation($"[托管订阅]收到消息 主题:{t} 内容:{payload}");
-                await Task.CompletedTask;
+
+                // 记录到该 client+topic 的环形缓冲（保留最近 MaxBufferedMessages 条）
+                var queue = _receivedMessagesDict.GetOrAdd(dictKey, _ => new ConcurrentQueue<ReceivedMqttMessage>());
+                queue.Enqueue(new ReceivedMqttMessage
+                {
+                    Topic = t,
+                    Payload = payload,
+                    ReceiveTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                });
+                while (queue.Count > MaxBufferedMessages && queue.TryDequeue(out _)) { }
+
+                return Task.CompletedTask;
             };
 
             // 注册事件 + 订阅broker
@@ -341,7 +367,7 @@ namespace ConnectionMqtt
         }
 
         /// <summary>
-        /// Http接口托管式取消订阅：解绑本地事件 + broker退订
+        /// Http接口托管式取消订阅：解绑本地事件 + broker退订，并清空该主题的消息缓冲
         /// </summary>
         public async Task UnSubscribeManagedAsync(string clientId, string topic)
         {
@@ -359,7 +385,25 @@ namespace ConnectionMqtt
             client.ApplicationMessageReceivedAsync -= item.Handler;
             // broker取消订阅
             await client.UnsubscribeAsync(topic);
+            // 清空该主题的消息缓冲（已退订，不再展示历史）
+            _receivedMessagesDict.TryRemove(dictKey, out _);
             _logger.LogInformation("MQTT[{ClientId}] 托管取消订阅主题:{Topic}", clientId, topic);
+        }
+
+        /// <summary>
+        /// 获取指定客户端 + 主题在托管订阅期间最近收到的消息列表（新的在前）。
+        /// </summary>
+        public Task<List<ReceivedMqttMessage>> GetReceivedMessagesAsync(string clientId, string topic)
+        {
+            string dictKey = $"{clientId}||{topic}";
+            if (_receivedMessagesDict.TryGetValue(dictKey, out var queue))
+            {
+                // 新的在前：取队列快照后反序
+                var list = queue.ToList();
+                list.Reverse();
+                return Task.FromResult(list);
+            }
+            return Task.FromResult(new List<ReceivedMqttMessage>());
         }
 
         public List<string> GetAllDeviceCodes()=> _clientDict.Keys.ToList();
