@@ -1,0 +1,19 @@
+
+
+UI
+    订阅
+        nc/sendfromsoft/
+        nc/feedbacksendfromsoft/
+    发送
+        
+        nc/sendfrommqttx/
+        nc/feedbacksendfrommqttx/
+
+
+MQTTX
+    订阅
+        nc/sendfromsoft/
+        nc/feedbacksendfromsoft/
+    发送
+        nc/sendfrommqttx/
+        nc/feedbacksendfrommqttx/
