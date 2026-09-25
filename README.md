@@ -500,3 +500,16 @@ session.Close();
    - 此开关只管 **HTTP REST 接口**。`SocketServerService` 的裸 TCP 监听端口（如 9001）不经过 HTTP 管道，仍按 `SocketServerConfigs` 绑定地址对外接受连接，不受此开关影响；如需限制 TCP 来源需另行在 Accept 后加 IP/token 校验。
    - 软件作为客户端主动连局域网设备（Socket/Modbus/OPC UA 出方向连接）不受任何影响。
 
+
+## 2026-09-25 设备在线状态批量查询（MQTT/OPCUA/Socket）
+
+### 后端新增接口
+- `GET /api/MqttOperation/GetAllDeviceStatus` → `Dictionary<string,bool>`，遍历所有已创建 MQTT 客户端逐个 Ping
+- `GET /api/OpcUaOperation/GetAllDeviceStatus` → `Dictionary<string,bool>`，遍历所有 OPC UA 设备逐个 TestConnection
+- `GET /api/SocketClientOperation/GetAllDeviceStatus` → `Dictionary<string,bool>`，返回各设备长连接是否保持
+- `GET /api/SocketServerOperation/GetAllServerStatus` → `List<{serverCode,running,clientCount}>`，返回各 Socket 服务端监听状态与在线客户端数
+
+### 实现要点
+- MQTT/OPC UA：复用已有的 `PingMqttBrokerAsync` / `TestConnectionAsync`
+- Socket 客户端：短连接模式自然返回 false，长连接模式查 `IsLongConnectionOpen`
+- Socket 服务端：查 `_contextDict` 判断监听是否在跑，并统计 `Clients.Count`
