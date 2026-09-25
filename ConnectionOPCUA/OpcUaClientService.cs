@@ -116,11 +116,11 @@ namespace ConnectionOPCUA
         }
 
         /// <inheritdoc />
-        public async Task WriteNodeAsync(string deviceCode, string nodeId, object value)
+        public async Task WriteNodeAsync(string deviceCode, string nodeId, object value, string dataType = "Int32")
         {
             var session = await EnsureSessionAsync(deviceCode);
-            // 前端传过来的值通常是字符串，这里自动推断为 OPC UA 节点期望的数据类型
-            var typedValue = CoerceValue(value);
+            // 按用户指定的数据类型把字符串值转换为对应的 .NET 类型
+            var typedValue = ConvertByType(value, dataType);
             // 组装单个写入请求：指定节点 + Value 属性 + 目标值
             var writeValue = new WriteValue
             {
@@ -143,22 +143,29 @@ namespace ConnectionOPCUA
         }
 
         /// <summary>
-        /// 把前端传来的值自动推断为 OPC UA 节点期望的 .NET 类型。
-        /// 规则：true/false → bool；整数 → int；长整数 → long；小数 → double；其余保持字符串。
+        /// 按指定数据类型把前端传来的值转换为对应的 .NET 类型。
+        /// 支持：Boolean/SByte/Int16/UInt16/Int32/UInt32/Int64/UInt64/Float/Double/String。
         /// </summary>
-        private static object? CoerceValue(object? value)
+        private static object? ConvertByType(object? value, string dataType)
         {
             if (value is null) return null;
-            // 已经是非字符串类型（JSON 反序列化时可能已经是 bool/long/double），直接用
-            if (value is not string s) return value;
+            var s = value.ToString()?.Trim() ?? string.Empty;
 
-            s = s.Trim();
-            if (s.Equals("true", StringComparison.OrdinalIgnoreCase)) return true;
-            if (s.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
-            if (int.TryParse(s, out var iv)) return iv;
-            if (long.TryParse(s, out var lv)) return lv;
-            if (double.TryParse(s, out var dv)) return dv;
-            return s;
+            return dataType switch
+            {
+                "Boolean" => bool.Parse(s),
+                "SByte" => sbyte.Parse(s),
+                "Int16" => short.Parse(s),
+                "UInt16" => ushort.Parse(s),
+                "Int32" => int.Parse(s),
+                "UInt32" => uint.Parse(s),
+                "Int64" => long.Parse(s),
+                "UInt64" => ulong.Parse(s),
+                "Float" => float.Parse(s),
+                "Double" => double.Parse(s),
+                "String" => s,
+                _ => throw new ArgumentException($"不支持的数据类型：{dataType}")
+            };
         }
 
         /// <inheritdoc />

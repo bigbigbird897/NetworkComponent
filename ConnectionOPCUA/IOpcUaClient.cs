@@ -46,8 +46,9 @@ namespace ConnectionOPCUA
         /// </summary>
         /// <param name="deviceCode">设备编码</param>
         /// <param name="nodeId">节点 ID</param>
-        /// <param name="value">待写入值（数值/布尔等，需与节点类型匹配）</param>
-        Task WriteNodeAsync(string deviceCode, string nodeId, object value);
+        /// <param name="value">待写入值（字符串形式）</param>
+        /// <param name="dataType">目标数据类型：Boolean/SByte/Int16/UInt16/Int32/UInt32/Int64/UInt64/Float/Double/String</param>
+        Task WriteNodeAsync(string deviceCode, string nodeId, object value, string dataType = "Int32");
 
         /// <summary>
         /// 测试与指定设备的 OPC UA 服务端连接是否可达（建立并释放会话）。

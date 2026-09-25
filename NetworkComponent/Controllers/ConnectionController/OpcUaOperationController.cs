@@ -53,7 +53,7 @@ namespace NetworkComponent.Controllers
         [HttpPost]
         public async Task<ApiUnifiedReturnStructure<object>> WriteNode([FromBody] OpcUaWriteNodeInput input)
         {
-            await _opcUaClient.WriteNodeAsync(input.DeviceCode, input.NodeId, input.Value ?? string.Empty);
+            await _opcUaClient.WriteNodeAsync(input.DeviceCode, input.NodeId, input.Value ?? string.Empty, input.DataType);
             return ApiReturnHelper.Success(null, "写入完成");
         }
 
@@ -106,8 +106,11 @@ namespace NetworkComponent.Controllers
         /// <summary>节点ID</summary>
         public string NodeId { get; set; } = string.Empty;
 
-        /// <summary>待写入值（需与节点数据类型匹配）</summary>
+        /// <summary>待写入值（字符串形式，后端按 DataType 转换）</summary>
         public object? Value { get; set; }
+
+        /// <summary>数据类型：Boolean/SByte/Int16/UInt16/Int32/UInt32/Int64/UInt64/Float/Double/String</summary>
+        public string DataType { get; set; } = "Int32";
     }
 
     #endregion
