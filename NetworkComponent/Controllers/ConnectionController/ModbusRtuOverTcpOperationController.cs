@@ -97,6 +97,14 @@ namespace NetworkComponent.Controllers
             return ApiReturnHelper.Success(Wrap<object?>(dto.DeviceCode, null), "批量写线圈完成");
         }
 
+        /// <summary>批量写入多个保持寄存器（0x10）</summary>
+        [HttpPost]
+        public async Task<ApiUnifiedReturnStructure<ModbusResult<object?>>> WriteMultiRegister([FromBody] ModbusTcpReadRegisterDto2 dto)
+        {
+            await _modbusClient.WriteMultiRegistersAsync(dto.DeviceCode, dto.StartAddr, (dto.Value ?? new List<ushort>()).ToArray());
+            return ApiReturnHelper.Success(Wrap<object?>(dto.DeviceCode, null), "批量写寄存器完成");
+        }
+
         /// <summary>获取全部设备编码列表</summary>
         [HttpGet]
         public ApiUnifiedReturnStructure<List<string>> GetAllDeviceCode()
