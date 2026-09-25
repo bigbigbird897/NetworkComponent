@@ -70,7 +70,8 @@ namespace ConnectionOPCUA
         public List<string> GetAllDeviceCodes() => _deviceDict.Keys.ToList();
 
         /// <summary>
-        /// 鎵归噺 TestConnection 鎵€鏈?OPC UA 璁惧銆?        /// </summary>
+        /// 批量 TestConnection 所有 OPC UA 设备。
+        /// </summary>
         public async Task<Dictionary<string, bool>> GetAllDeviceStatusAsync()
         {
             var result = new Dictionary<string, bool>();
@@ -118,12 +119,14 @@ namespace ConnectionOPCUA
         public async Task WriteNodeAsync(string deviceCode, string nodeId, object value)
         {
             var session = await EnsureSessionAsync(deviceCode);
+            // 前端传过来的值通常是字符串，这里自动推断为 OPC UA 节点期望的数据类型
+            var typedValue = CoerceValue(value);
             // 组装单个写入请求：指定节点 + Value 属性 + 目标值
             var writeValue = new WriteValue
             {
                 NodeId = new NodeId(nodeId),
                 AttributeId = Attributes.Value,
-                Value = new DataValue { Value = value }
+                Value = new DataValue { Value = typedValue }
             };
             // 新版 OPC UA 库 WriteAsync(requestHeader, nodesToWrite, ct) 返回 WriteResponse，结果在 Results 里
             var response = await session.WriteAsync(
@@ -136,7 +139,26 @@ namespace ConnectionOPCUA
             {
                 throw new InvalidOperationException($"OPCUA 写入节点 {nodeId} 失败：{statusCode}");
             }
-            _logger.LogDebug("OPCUA[{DeviceCode}] 写入节点 {NodeId} = {Value}", deviceCode, nodeId, value);
+            _logger.LogDebug("OPCUA[{DeviceCode}] 写入节点 {NodeId} = {Value} ({Type})", deviceCode, nodeId, typedValue, typedValue?.GetType().Name);
+        }
+
+        /// <summary>
+        /// 把前端传来的值自动推断为 OPC UA 节点期望的 .NET 类型。
+        /// 规则：true/false → bool；整数 → int；长整数 → long；小数 → double；其余保持字符串。
+        /// </summary>
+        private static object? CoerceValue(object? value)
+        {
+            if (value is null) return null;
+            // 已经是非字符串类型（JSON 反序列化时可能已经是 bool/long/double），直接用
+            if (value is not string s) return value;
+
+            s = s.Trim();
+            if (s.Equals("true", StringComparison.OrdinalIgnoreCase)) return true;
+            if (s.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
+            if (int.TryParse(s, out var iv)) return iv;
+            if (long.TryParse(s, out var lv)) return lv;
+            if (double.TryParse(s, out var dv)) return dv;
+            return s;
         }
 
         /// <inheritdoc />
