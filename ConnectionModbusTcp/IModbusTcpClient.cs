@@ -98,5 +98,15 @@ namespace ConnectionModbusTcp
         /// <param name="tcpPacketBytes">完整ModbusTcp报文 MBAP+PDU</param>
         /// <returns>设备返回原始字节</returns>
         Task<byte[]> SendRawTcpPacketAsync(string deviceCode, byte[] tcpPacketBytes);
+
+        /// <summary>
+        /// 获取指定设备最近一次收发的原始报文（hex）。
+        /// </summary>
+        (string req, string resp, DateTime time)? GetLastExchange(string deviceCode);
+
+        /// <summary>
+        /// 批量获取所有设备的在线状态（TCP connect 测试）。
+        /// </summary>
+        Task<Dictionary<string, bool>> GetAllDeviceStatusAsync();
     }
 }

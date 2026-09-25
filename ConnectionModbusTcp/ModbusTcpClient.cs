@@ -1,4 +1,4 @@
-﻿using ConnectionModbusTcp.LocalEntity;
+using ConnectionModbusTcp.LocalEntity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System;
@@ -20,6 +20,11 @@ namespace ConnectionModbusTcp
     {
         private readonly ILogger<ModbusTcpClient> _logger;
         private readonly ConcurrentDictionary<string, ModbusTcpClientConfig> _deviceDict = new();
+
+        /// <summary>
+        /// 最近一次收发报文记录（用于调试面板展示原始 hex）。
+        /// </summary>
+        private readonly ConcurrentDictionary<string, (string req, string resp, DateTime time)> _lastExchange = new();
 
         /// <summary>
         /// 构造函数：由 Autofac 注入配置与日志，启动时加载全部 ModbusTcp 设备配置。
@@ -429,7 +434,11 @@ namespace ConnectionModbusTcp
 
                 _logger.LogInformation("ModbusTcp[{DeviceCode}] 返回报文: {Hex}",
                     deviceCode, BitConverter.ToString(response));
-                return response;
+                                _lastExchange[deviceCode] = (
+                    BitConverter.ToString(tcpPacketBytes).Replace("-", " "),
+                    response == null || response.Length == 0 ? "(无响应)" : BitConverter.ToString(response).Replace("-", " "),
+                    DateTime.Now);
+return response;
             }
             catch (Exception ex)
             {
@@ -437,6 +446,38 @@ namespace ConnectionModbusTcp
                     deviceCode, cfg.IpAddress, cfg.Port);
                 throw;
             }
+        }
+        /// <summary>
+        /// 获取指定设备最近一次收发的原始报文（hex 字符串）。
+        /// </summary>
+        public (string req, string resp, DateTime time)? GetLastExchange(string deviceCode)
+        {
+            return _lastExchange.TryGetValue(deviceCode, out var v) ? v : null;
+        }
+
+        /// <summary>
+        /// 批量获取所有设备的在线状态（短连接：尝试 TCP Connect，3 秒超时）。
+        /// </summary>
+        public async Task<Dictionary<string, bool>> GetAllDeviceStatusAsync()
+        {
+            var result = new Dictionary<string, bool>();
+            foreach (var code in _deviceDict.Keys)
+            {
+                var cfg = _deviceDict[code];
+                try
+                {
+                    using var test = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    await test.ConnectAsync(cfg.IpAddress, cfg.Port).WaitAsync(cts.Token);
+                    result[code] = true;
+                    test.Close();
+                }
+                catch
+                {
+                    result[code] = false;
+                }
+            }
+            return result;
         }
         #endregion
 

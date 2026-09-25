@@ -103,6 +103,16 @@ namespace ConnectionModbusRtuWithTcp
         /// </summary>
         bool IsConnected(string deviceCode);
 
+        /// <summary>
+        /// 获取指定设备最近一次收发的原始报文（hex）。
+        /// </summary>
+        (string req, string resp, DateTime time)? GetLastExchange(string deviceCode);
+
+        /// <summary>
+        /// 批量获取所有设备的在线状态。
+        /// </summary>
+        Dictionary<string, bool> GetAllDeviceStatus();
+
         List<string> GetAllDeviceCodes();
     }
 }

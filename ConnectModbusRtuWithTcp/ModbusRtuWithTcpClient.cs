@@ -27,6 +27,12 @@ namespace ConnectionModbusRtuWithTcp
         private readonly ConcurrentDictionary<string, (Socket socket, SemaphoreSlim gate)> _longConnDict = new();
 
         /// <summary>
+        /// 最近一次收发报文记录（用于调试面板展示原始 hex）。
+        /// value: (请求hex, 响应hex, 时间)
+        /// </summary>
+        private readonly ConcurrentDictionary<string, (string req, string resp, DateTime time)> _lastExchange = new();
+
+        /// <summary>
         /// 构造函数：由 Autofac 注入配置与日志，启动时加载全部 Modbus RTU 设备配置。
         /// </summary>
         public ModbusRtuWithTcpClient(ILogger<ModbusRtuWithTcpClient> logger, IConfiguration config)
@@ -362,6 +368,13 @@ namespace ConnectionModbusRtuWithTcp
 
                 _logger.LogDebug("Modbus[{DeviceCode}] 设备返回报文: {Hex}",
                     deviceCode, BitConverter.ToString(response));
+
+                // 记录最近一次收发，供前端调试面板查看
+                _lastExchange[deviceCode] = (
+                    BitConverter.ToString(rtuBytes).Replace("-", " "),
+                    response == null || response.Length == 0 ? "(无响应)" : BitConverter.ToString(response).Replace("-", " "),
+                    DateTime.Now);
+
                 return response;
             }
             catch (Exception ex)
@@ -394,6 +407,25 @@ namespace ConnectionModbusRtuWithTcp
             return _longConnDict.TryGetValue(deviceCode, out var entry)
                 && entry.socket.Connected
                 && !entry.socket.Poll(1000, SelectMode.SelectRead);
+        }
+
+        /// <summary>
+        /// 获取指定设备最近一次收发的原始报文（hex 字符串）。
+        /// </summary>
+        public (string req, string resp, DateTime time)? GetLastExchange(string deviceCode)
+        {
+            return _lastExchange.TryGetValue(deviceCode, out var v) ? v : null;
+        }
+
+        /// <summary>
+        /// 批量获取所有设备的长连接在线状态。
+        /// </summary>
+        public Dictionary<string, bool> GetAllDeviceStatus()
+        {
+            var result = new Dictionary<string, bool>();
+            foreach (var code in _deviceDict.Keys)
+                result[code] = IsConnected(code);
+            return result;
         }
         #endregion
 
@@ -439,7 +471,7 @@ namespace ConnectionModbusRtuWithTcp
         /// 长连接模式收发：同一 deviceCode 复用一条 TCP 连接，事务间串行化；
         /// 异常/超时自动丢弃连接，下次调用重建。
         /// </summary>
-        private async Task<byte[]> InnerTcpSendAsync(string deviceCode, string serverIp, int port, byte[] sendData, bool waitResponse = true, int timeoutMs = 1000)
+        private async Task<byte[]> InnerTcpSendAsync(string deviceCode, string serverIp, int port, byte[] sendData, bool waitResponse = true, int timeoutMs = 10000)
         {
             var entry = GetOrCreateEntry(deviceCode);
             await entry.gate.WaitAsync().ConfigureAwait(false);
