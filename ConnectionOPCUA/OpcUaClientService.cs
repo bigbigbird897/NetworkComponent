@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using System.Threading;
 using ConnectionOPCUA.LocalEntity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -117,28 +118,24 @@ namespace ConnectionOPCUA
         public async Task WriteNodeAsync(string deviceCode, string nodeId, object value)
         {
             var session = await EnsureSessionAsync(deviceCode);
-            await Task.Run(() =>
+            // 组装单个写入请求：指定节点 + Value 属性 + 目标值
+            var writeValue = new WriteValue
             {
-                // 组装单个写入请求：指定节点 + Value 属性 + 目标值
-                var writeValue = new WriteValue
-                {
-                    NodeId = new NodeId(nodeId),
-                    AttributeId = Attributes.Value,
-                    Value = new DataValue { Value = value }
-                };
-                // 调用底层 Write 服务，结果为每个节点的状态码集合
-                session.Write(
-                    requestHeader: null,
-                    nodesToWrite: new WriteValueCollection { writeValue },
-                    results: out StatusCodeCollection results,
-                    diagnosticInfos: out _);
+                NodeId = new NodeId(nodeId),
+                AttributeId = Attributes.Value,
+                Value = new DataValue { Value = value }
+            };
+            // 新版 OPC UA 库 WriteAsync(requestHeader, nodesToWrite, ct) 返回 WriteResponse，结果在 Results 里
+            var response = await session.WriteAsync(
+                requestHeader: null,
+                nodesToWrite: new WriteValueCollection { writeValue },
+                ct: CancellationToken.None);
 
-                var statusCode = results[0];
-                if (StatusCode.IsNotGood(statusCode))
-                {
-                    throw new ServiceResultException(statusCode, $"OPCUA 写入节点 {nodeId} 失败");
-                }
-            });
+            var statusCode = response.Results[0];
+            if (StatusCode.IsNotGood(statusCode))
+            {
+                throw new InvalidOperationException($"OPCUA 写入节点 {nodeId} 失败：{statusCode}");
+            }
             _logger.LogDebug("OPCUA[{DeviceCode}] 写入节点 {NodeId} = {Value}", deviceCode, nodeId, value);
         }
 
