@@ -1,4 +1,4 @@
-﻿using ConnectionMqtt.LocalEntity;
+using ConnectionMqtt.LocalEntity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using MQTTnet;
@@ -410,6 +410,19 @@ namespace ConnectionMqtt
         }
 
         public List<string> GetAllDeviceCodes()=> _clientDict.Keys.ToList();
-    }
+    
+        /// <summary>
+        /// 鎵归噺 Ping 鎵€鏈?MQTT 瀹㈡埛绔笌 Broker 鐨勮繛鎺ョ姸鎬併€?        /// </summary>
+        public async Task<Dictionary<string, bool>> GetAllDeviceStatusAsync()
+        {
+            var result = new Dictionary<string, bool>();
+            foreach (var id in _clientDict.Keys)
+            {
+                try { result[id] = await PingMqttBrokerAsync(id); }
+                catch { result[id] = false; }
+            }
+            return result;
+        }
+}
 
 }

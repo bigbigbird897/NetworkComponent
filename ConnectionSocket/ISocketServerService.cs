@@ -20,6 +20,11 @@ namespace ConnectionSocket
         List<string> GetAllServerCodes();
 
         /// <summary>
+        /// 批量获取所有服务端运行状态：是否在监听 + 当前客户端数。
+        /// </summary>
+        Dictionary<string, (bool running, int clientCount)> GetAllServerStatus();
+
+        /// <summary>
         /// 启动指定服务端（开始监听并接受客户端连接）。
         /// </summary>
         Task StartAsync(string serverCode);

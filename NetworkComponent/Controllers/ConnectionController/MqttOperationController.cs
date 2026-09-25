@@ -140,6 +140,13 @@ namespace NetworkComponent.Controllers
         {
             return ApiReturnHelper.Success(_mqttService.GetAllDeviceCodes());
         }
+        /// <summary>
+        /// 鎵归噺鏌ヨ鎵€鏈?MQTT 瀹㈡埛绔笌 Broker 鐨勮繛鎺ョ姸鎬侊紙Ping 鎺㈡祴锛夈€?        /// </summary>
+        [HttpGet]
+        public async Task<ApiUnifiedReturnStructure<Dictionary<string, bool>>> GetAllDeviceStatus()
+        {
+            return ApiReturnHelper.Success(await _mqttService.GetAllDeviceStatusAsync());
+        }
     }
 
     #region DTO

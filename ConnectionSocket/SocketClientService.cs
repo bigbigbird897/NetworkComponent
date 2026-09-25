@@ -60,6 +60,14 @@ namespace ConnectionSocket
         public List<string> GetAllDeviceCodes() => _deviceDict.Keys.ToList();
 
         /// <inheritdoc />
+        public Dictionary<string, bool> GetAllDeviceStatus()
+        {
+            var result = new Dictionary<string, bool>();
+            foreach (var code in _deviceDict.Keys)
+                result[code] = IsLongConnectionOpen(code);
+            return result;
+        }
+        /// <inheritdoc />
         public async Task<byte[]> SendAndReceiveAsync(string deviceCode, byte[] sendData, int? timeoutMs = null)
         {
             var cfg = GetDeviceConfig(deviceCode);

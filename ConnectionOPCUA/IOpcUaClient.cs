@@ -22,6 +22,11 @@ namespace ConnectionOPCUA
         List<string> GetAllDeviceCodes();
 
         /// <summary>
+        /// 批量获取所有 OPC UA 设备的连接状态（逐个 TestConnection 探测）。
+        /// </summary>
+        Task<Dictionary<string, bool>> GetAllDeviceStatusAsync();
+
+        /// <summary>
         /// 读取单个节点的当前值。
         /// </summary>
         /// <param name="deviceCode">设备编码</param>

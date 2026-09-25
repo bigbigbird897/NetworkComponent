@@ -53,6 +53,19 @@ namespace ConnectionSocket
         public List<string> GetAllServerCodes() => _serverDict.Keys.ToList();
 
         /// <inheritdoc />
+        public Dictionary<string, (bool running, int clientCount)> GetAllServerStatus()
+        {
+            var result = new Dictionary<string, (bool running, int clientCount)>();
+            foreach (var code in _serverDict.Keys)
+            {
+                if (_contextDict.TryGetValue(code, out var ctx) && !ctx.Stopped)
+                    result[code] = (true, ctx.Clients.Count);
+                else
+                    result[code] = (false, 0);
+            }
+            return result;
+        }
+        /// <inheritdoc />
         public async Task StartAsync(string serverCode)
         {
             var cfg = GetServerConfig(serverCode);

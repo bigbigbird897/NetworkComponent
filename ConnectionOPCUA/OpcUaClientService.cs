@@ -68,6 +68,18 @@ namespace ConnectionOPCUA
         /// <inheritdoc />
         public List<string> GetAllDeviceCodes() => _deviceDict.Keys.ToList();
 
+        /// <summary>
+        /// 鎵归噺 TestConnection 鎵€鏈?OPC UA 璁惧銆?        /// </summary>
+        public async Task<Dictionary<string, bool>> GetAllDeviceStatusAsync()
+        {
+            var result = new Dictionary<string, bool>();
+            foreach (var code in _deviceDict.Keys)
+            {
+                try { result[code] = await TestConnectionAsync(code); }
+                catch { result[code] = false; }
+            }
+            return result;
+        }
         /// <inheritdoc />
         public async Task<object?> ReadNodeAsync(string deviceCode, string nodeId)
         {

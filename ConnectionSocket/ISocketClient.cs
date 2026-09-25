@@ -21,6 +21,11 @@ namespace ConnectionSocket
         List<string> GetAllDeviceCodes();
 
         /// <summary>
+        /// 批量获取所有 Socket 设备的长连接状态（短连接模式返回 false）。
+        /// </summary>
+        Dictionary<string, bool> GetAllDeviceStatus();
+
+        /// <summary>
         /// 连接设备、发送字节并等待应答（短连接，完成后自动断开）。
         /// </summary>
         /// <param name="deviceCode">设备编码</param>

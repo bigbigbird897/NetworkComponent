@@ -119,6 +119,15 @@ namespace NetworkComponent.Controllers
         {
             return ApiReturnHelper.Success(_server.GetAllServerCodes());
         }
+        /// <summary>
+        /// 鎵归噺鏌ヨ鎵€鏈夋湇鍔＄杩愯鐘舵€侊紙鏄惁鍦ㄧ洃鍚?+ 褰撳墠瀹㈡埛绔暟锛夈€?        /// </summary>
+        [HttpGet]
+        public ApiUnifiedReturnStructure<object> GetAllServerStatus()
+        {
+            var raw = _server.GetAllServerStatus();
+            var list = raw.Select(kv => new { serverCode = kv.Key, running = kv.Value.running, clientCount = kv.Value.clientCount }).ToList();
+            return ApiReturnHelper.Success((object)list);
+        }
     }
 
     #region DTO

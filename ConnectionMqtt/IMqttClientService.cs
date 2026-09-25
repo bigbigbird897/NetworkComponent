@@ -76,6 +76,11 @@ namespace ConnectionMqtt
         /// </summary>
         List<string> GetAllDeviceCodes();
 
+        /// <summary>
+        /// 批量获取所有 MQTT 客户端与 Broker 的连接状态（Ping 探测）。
+        /// </summary>
+        Task<Dictionary<string, bool>> GetAllDeviceStatusAsync();
+
 
         /// <summary>
         /// Http接口托管式订阅，内部保存handler，避免匿名lambda无法解绑

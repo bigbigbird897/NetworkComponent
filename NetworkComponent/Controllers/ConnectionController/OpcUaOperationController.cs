@@ -76,6 +76,13 @@ namespace NetworkComponent.Controllers
         {
             return ApiReturnHelper.Success(_opcUaClient.GetAllDeviceCodes());
         }
+        /// <summary>
+        /// 鎵归噺鏌ヨ鎵€鏈?OPC UA 璁惧鐨勮繛鎺ョ姸鎬侊紙閫愪釜 TestConnection 鎺㈡祴锛夈€?        /// </summary>
+        [HttpGet]
+        public async Task<ApiUnifiedReturnStructure<Dictionary<string, bool>>> GetAllDeviceStatus()
+        {
+            return ApiReturnHelper.Success(await _opcUaClient.GetAllDeviceStatusAsync());
+        }
     }
 
     #region DTO

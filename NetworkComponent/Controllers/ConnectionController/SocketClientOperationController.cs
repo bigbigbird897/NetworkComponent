@@ -131,6 +131,13 @@ namespace NetworkComponent.Controllers
         {
             return ApiReturnHelper.Success(_socketClient.GetAllDeviceCodes());
         }
+        /// <summary>
+        /// 鎵归噺鏌ヨ鎵€鏈?Socket 璁惧鐨勯暱杩炴帴鐘舵€侊紙鐭繛鎺ユā寮忚繑鍥?false锛夈€?        /// </summary>
+        [HttpGet]
+        public ApiUnifiedReturnStructure<Dictionary<string, bool>> GetAllDeviceStatus()
+        {
+            return ApiReturnHelper.Success(_socketClient.GetAllDeviceStatus());
+        }
     }
 
     #region DTO
